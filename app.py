@@ -2,9 +2,10 @@ import os
 import sqlite3
 import random
 from flask import Flask, render_template_string, request, redirect, url_for, flash, session, abort, send_from_directory, jsonify, get_flashed_messages
-from datetime import datetime
+from datetime import datetime, timedelta
 from functools import wraps
 from werkzeug.utils import secure_filename
+from flask import Blueprint
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -12,8 +13,17 @@ UPLOAD_FOLDER = 'avatars'
 BG_UPLOAD_FOLDER = 'profilebgs'
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BG_UPLOAD_FOLDER, exist_ok=True)
-ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp'}
+ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'mov'}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024
+
+# Подключи эти переменные к своему конструктору или config.py, если нужно
+STORY_UPLOAD_FOLDER = 'static/stories'
+os.makedirs(STORY_UPLOAD_FOLDER, exist_ok=True)
+
+# Используй свой набор разрешённых расширений
+MAX_STORY_SIZE = 10 * 1024 * 1024  # 10 MB
+
+bp = Blueprint('stories', __name__, url_prefix='/stories')
 
 from pin_thread import pin_bp
 app.register_blueprint(pin_bp)
@@ -114,6 +124,14 @@ def count_unread_notifications(user):
 
 def db_connect():
     return sqlite3.connect(DB)
+  
+def allowed_file(filename):
+    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
+
+def clean_old_stories():
+    with db_connect() as db:
+        db.execute('DELETE FROM stories WHERE expires < ?', (datetime.utcnow(),))
+        db.commit()
 
 def nowstr():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -134,19 +152,50 @@ def get_profile_bg(user):
         else:
             return url_for('profile_bg_file', filename=user['profile_bg'])
     return random.choice(PROFILE_BG_PRESETS)
-
 def get_user(nick):
     db = db_connect()
     cur = db.execute('SELECT * FROM users WHERE nickname=?', (nick,))
     row = cur.fetchone()
     db.close()
     if row:
-        keys = ['nickname','password','role','banned','muted','bio','avatar','created','banner','profile_bg','techs','city','website','status','theme']
+        keys = [
+            'nickname', 'password', 'role', 'banned', 'muted', 'bio', 'avatar', 'created', 'banner',
+            'profile_bg', 'techs', 'city', 'website', 'status', 'theme',
+            'can_message', 'notify', 'last_seen', 'hide_online'
+        ]
         user = dict(zip(keys, row))
         user['banned'] = bool(user['banned'])
         user['muted'] = bool(user['muted'])
         return user
     return None
+
+def humanize_last_seen(last_seen_str, hide_online=False):
+    try:
+        try:
+            last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
+        except ValueError:
+            last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
+    except Exception:
+        return "неизвестно", "offline"
+    now = datetime.utcnow()
+    diff = now - last_seen
+    minutes = int(diff.total_seconds() // 60)
+    hours = int(diff.total_seconds() // 3600)
+    days = diff.days
+
+    if days >= 30:
+        return "был очень давно", "offline"
+    # Если онлайн, но скрытие статуса включено — "был недавно" (например, только что)
+    if minutes < 3:
+        if hide_online:
+            return "был недавно", "offline"
+        return "в сети", "online"
+    elif minutes < 60:
+        return f"был {minutes} мин назад", "offline"
+    elif hours < 24:
+        return f"был {hours} ч назад", "offline"
+    else:
+        return f"был {days} дн назад", "offline"
 
 def get_user_banner(user):
     if not user or not user.get('banner'):
@@ -181,6 +230,138 @@ def admin_required(f):
         else:
             abort(403)
     return wrap
+
+@bp.route('/', methods=['GET'])
+def stories_view():
+    clean_old_stories()
+    db = db_connect()
+    now = datetime.utcnow()
+    cur = db.execute(
+        "SELECT s.*, u.avatar FROM stories s JOIN users u ON s.user_nickname=u.nickname WHERE s.expires > ? ORDER BY s.created DESC",
+        (now,))
+    rows = cur.fetchall()
+    db.close()
+    # Группируем по пользователям
+    stories = {}
+    for row in rows:
+        story = dict(zip([desc[0] for desc in cur.description], row))
+        stories.setdefault(story['user_nickname'], []).append(story)
+    # HTML + JS для просмотра историй (Telegram-style, минимум)
+    html = '''
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/microtip/2.0.2/microtip.min.css">
+    <h2>Истории</h2>
+    <div class="stories-bar" style="display:flex;gap:20px;align-items:center;">
+      {% for user, items in stories.items() %}
+        <div class="story-avatar" onclick="openStory('{{ user }}')" style="cursor:pointer;text-align:center;">
+          <img src="{{ items[0]['avatar'] or '/static/default_avatar.png' }}" style="width:56px;height:56px;border-radius:50%;border:2px solid #6cf;">
+          <div style="font-size:14px;">{{ user }}</div>
+        </div>
+      {% endfor %}
+      <div class="story-add" style="text-align:center;">
+        <form action="{{ url_for('stories.stories_upload') }}" method="post" enctype="multipart/form-data">
+          <label style="cursor:pointer;">
+            <img src="/static/add_story.png" style="width:56px;height:56px;border-radius:50%;border:2px dashed #8f8;">
+            <input type="file" name="file" style="display:none;" required onchange="this.form.submit()">
+          </label>
+          <input type="text" name="caption" placeholder="Подпись (необязательно)" style="width:100px;font-size:12px;">
+        </form>
+        <div style="font-size:14px;color:#393;">+ добавить</div>
+      </div>
+    </div>
+    <div id="stories-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.96);z-index:1000;color:#fff;">
+      <div id="story-content" style="position:relative;max-width:90vw;max-height:90vh;margin:60px auto 0 auto;text-align:center;"></div>
+      <button onclick="closeStory()" style="position:absolute;top:20px;right:40px;font-size:2.5em;background:none;color:#fff;border:none;cursor:pointer;">×</button>
+      <button onclick="prevStory()" style="position:absolute;top:50%;left:30px;font-size:2em;background:none;color:#fff;border:none;cursor:pointer;">&#8592;</button>
+      <button onclick="nextStory()" style="position:absolute;top:50%;right:30px;font-size:2em;background:none;color:#fff;border:none;cursor:pointer;">&#8594;</button>
+    </div>
+    <script>
+    let stories = {{ stories|tojson }};
+    let users = Object.keys(stories);
+    let currentUser = null, currentIndex = 0;
+    function openStory(user) {
+      currentUser = user;
+      currentIndex = 0;
+      showStory();
+      document.getElementById('stories-modal').style.display = '';
+    }
+    function showStory() {
+      let story = stories[currentUser][currentIndex];
+      let html = "";
+      if (story.content_type.startsWith('image')) {
+        html = `<img src="${story.content_url}" style="max-width:100%;max-height:80vh;border-radius:16px;">`;
+      } else if (story.content_type.startsWith('video')) {
+        html = `<video src="${story.content_url}" controls autoplay style="max-width:100%;max-height:80vh;border-radius:16px;"></video>`;
+      }
+      if (story.caption) html += `<div style="margin-top:10px;font-size:18px;">${story.caption}</div>`;
+      html += `<div style="margin-top:10px;font-size:small;opacity:0.6;">${story.user_nickname}, ${story.created}</div>`;
+      document.getElementById('story-content').innerHTML = html;
+    }
+    function closeStory() {
+      document.getElementById('stories-modal').style.display = 'none';
+      currentUser = null;
+      currentIndex = 0;
+    }
+    function prevStory() {
+      if (currentIndex > 0) { currentIndex--; showStory(); }
+      else {
+        let idx = users.indexOf(currentUser);
+        if (idx > 0) {
+          currentUser = users[idx - 1];
+          currentIndex = 0;
+          showStory();
+        }
+      }
+    }
+    function nextStory() {
+      if (currentIndex < stories[currentUser].length - 1) { currentIndex++; showStory(); }
+      else {
+        let idx = users.indexOf(currentUser);
+        if (idx < users.length - 1) {
+          currentUser = users[idx + 1];
+          currentIndex = 0;
+          showStory();
+        }
+      }
+    }
+    document.addEventListener('keydown', function(e){
+      if(document.getElementById('stories-modal').style.display !== 'none') {
+        if(e.key === "ArrowLeft") prevStory();
+        if(e.key === "ArrowRight") nextStory();
+        if(e.key === "Escape") closeStory();
+      }
+    });
+    </script>
+    <style>
+      .stories-bar::-webkit-scrollbar {display:none;}
+    </style>
+    '''
+    return render_template_string(html, stories=stories)
+
+@bp.route('/upload', methods=['POST'])
+def stories_upload():
+    if not session.get('user'):
+        abort(401)
+    user = session['user']
+    file = request.files.get('file')
+    caption = request.form.get('caption', '')
+    if not file or not allowed_file(file.filename):
+        return "Недопустимый формат файла", 400
+    file.seek(0, os.SEEK_END)
+    if file.tell() > MAX_STORY_SIZE:
+        return "Слишком большой файл", 400
+    file.seek(0)  # верни указатель в начало
+    filename = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "_" + secure_filename(file.filename)
+    file_path = os.path.join(STORY_UPLOAD_FOLDER, filename)
+    file.save(file_path)
+    ext = filename.rsplit('.', 1)[1].lower()
+    content_type = 'video' if ext in ['mp4', 'webm', 'mov'] else 'image'
+    content_url = f"/static/stories/{filename}"
+    expires = datetime.utcnow() + timedelta(days=1)
+    with db_connect() as db:
+        db.execute('INSERT INTO stories (user_nickname, created, expires, content_type, content_url, caption) VALUES (?, ?, ?, ?, ?, ?)',
+            (user, datetime.utcnow(), expires, content_type, content_url, caption))
+        db.commit()
+    return redirect(url_for('stories.stories_view'))
 
 @app.route("/avatars/<filename>")
 def avatar_file(filename):
@@ -447,7 +628,6 @@ def categories_page():
 
 @app.route('/profile/<nickname>', methods=["GET", "POST"])
 def profile(nickname):
-    from datetime import datetime, timedelta
     import random
 
     user = get_user(nickname)
@@ -558,32 +738,16 @@ def profile(nickname):
             friendship_buttons = f'<a href="{url_for("private_chat", nickname=user["nickname"])}" class="btn">Чат</a>'
 
     # --- ОНЛАЙН/ОФФЛАЙН + НАСТРОЙКИ ЧЕКБОКСОВ ---
+    can_message = int(user.get("can_message", 1))
+    notify = int(user.get("notify", 1))
+    hide_online = int(user.get("hide_online", 0))
+
+    # Формируем статус
     last_seen_str = user.get("last_seen", "")
-    is_online = False
-    minutes_ago = None
-    if last_seen_str:
-        try:
-            try:
-                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
-            diff = datetime.utcnow() - last_seen
-            minutes_ago = int(diff.total_seconds() // 60)
-            is_online = diff < timedelta(minutes=3)
-        except Exception:
-            is_online = False
-            minutes_ago = None
-    else:
-        is_online = False
-        minutes_ago = None
+    status_text, status_class = humanize_last_seen(last_seen_str, bool(hide_online))
 
-    status_text = "в сети" if is_online else (f"был {minutes_ago} мин назад" if minutes_ago is not None else "неизвестно")
-    status_class = "online" if is_online else "offline"
-
-    settings_panel = ""
+    # Панель настроек только для владельца профиля
     if session.get("user") == user["nickname"]:
-        can_message = int(user.get("can_message", 1))
-        notify = int(user.get("notify", 1))
         settings_panel = f"""
         <div class="user-settings-panel">
           <div class="setting-row">
@@ -601,6 +765,13 @@ def profile(nickname):
             </label>
           </div>
           <div class="setting-row">
+            <span>Скрывать онлайн</span>
+            <label class="switch">
+              <input type="checkbox" id="hide_online" {'checked' if hide_online else ''}>
+              <span class="slider"></span>
+            </label>
+          </div>
+          <div class="setting-row">
             <span>Статус</span>
             <span id="online-status" class="status-dot {status_class}"></span>
             <span id="last-seen-text">{status_text}</span>
@@ -613,7 +784,7 @@ def profile(nickname):
               method: 'POST',
               headers: {{'Content-Type': 'application/json'}},
               body: JSON.stringify({{setting: this.id, value: this.checked}})
-            }})
+            }}).then(() => window.location.reload());
           }});
         }});
         </script>
@@ -629,6 +800,11 @@ def profile(nickname):
         </div>
         """
 
+    # Пример простого шаблона
+    html = f"""
+    <h1>Профиль: {user['nickname']}</h1>
+    {settings_panel}
+    """
     # --- POST обработка ---
     if request.method == "POST" and session.get("user") == user["nickname"]:
         db = db_connect()
@@ -748,53 +924,7 @@ def profile(nickname):
     '''
     return render_base(content, f"Профиль {nickname}")
 
-# ===============================
-# 1. Роут сохранения чекбоксов
-# ===============================
-@app.route('/update_setting', methods=['POST'])
-def update_setting():
-    if 'user' not in session:
-        return {'ok': 0}, 403
-    user = session['user']
-    data = request.get_json(force=True)
-    setting = data.get('setting')
-    value = int(bool(data.get('value')))
-    if setting not in ('can_message', 'notify'):
-        return {'ok': 0}, 400
-    db = db_connect()
-    db.execute(f"UPDATE users SET {setting}=? WHERE nickname=?", (value, user))
-    db.commit()
-    db.close()
-    return {'ok': 1}
 
-# ===============================
-# 2. Функция онлайн/оффлайн
-# ===============================
-from datetime import datetime, timedelta
-
-def get_online_status(user):
-    last_seen_str = user.get("last_seen", "")
-    is_online = False
-    minutes_ago = None
-    if last_seen_str:
-        try:
-            try:
-                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
-            except ValueError:
-                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
-            diff = datetime.utcnow() - last_seen
-            minutes_ago = int(diff.total_seconds() // 60)
-            is_online = diff < timedelta(minutes=3)
-        except Exception:
-            is_online = False
-            minutes_ago = None
-    else:
-        is_online = False
-        minutes_ago = None
-
-    status_text = "в сети" if is_online else (f"был {minutes_ago} мин назад" if minutes_ago is not None else "неизвестно")
-    status_class = "online" if is_online else "offline"
-    return status_text, status_class
 
 @app.route('/profile/<nickname>/admin-action', methods=['POST'])
 @admin_required
@@ -1262,6 +1392,22 @@ def update_last_seen():
         db.execute("UPDATE users SET last_seen=datetime('now') WHERE nickname=?", (session["user"],))
         db.commit()
         db.close()
+
+@app.route('/update_setting', methods=['POST'])
+def update_setting():
+    if not session.get("user"):
+        return jsonify({"ok": False, "error": "not authorized"}), 403
+    data = request.get_json()
+    setting = data.get('setting')
+    value = data.get('value')
+    if setting not in ['can_message', 'notify', 'hide_online']:
+        return jsonify({"ok": False, "error": "bad setting"}), 400
+    db = db_connect()
+    db.execute(f"UPDATE users SET {setting}=? WHERE nickname=?", (1 if value else 0, session["user"]))
+    db.commit()
+    db.close()
+    return jsonify({"ok": True})
+
 
 BASE_STYLE = """
 <style>
