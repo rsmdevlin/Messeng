@@ -5,7 +5,6 @@ from flask import Flask, render_template_string, request, redirect, url_for, fla
 from datetime import datetime
 from functools import wraps
 from werkzeug.utils import secure_filename
-from datetime import datetime, timedelta
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -558,19 +557,20 @@ def profile(nickname):
         elif friendship[0] == "accepted":
             friendship_buttons = f'<a href="{url_for("private_chat", nickname=user["nickname"])}" class="btn">Чат</a>'
 
-    # --- Настройки профиля ---
-    from datetime import datetime, timedelta
-
+    # --- ОНЛАЙН/ОФФЛАЙН + НАСТРОЙКИ ЧЕКБОКСОВ ---
     last_seen_str = user.get("last_seen", "")
     is_online = False
     minutes_ago = None
     if last_seen_str:
         try:
-            last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
+            try:
+                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
             diff = datetime.utcnow() - last_seen
             minutes_ago = int(diff.total_seconds() // 60)
             is_online = diff < timedelta(minutes=3)
-        except Exception as e:
+        except Exception:
             is_online = False
             minutes_ago = None
     else:
@@ -582,8 +582,8 @@ def profile(nickname):
 
     settings_panel = ""
     if session.get("user") == user["nickname"]:
-        can_message = user.get("can_message", 1)
-        notify = user.get("notify", 1)
+        can_message = int(user.get("can_message", 1))
+        notify = int(user.get("notify", 1))
         settings_panel = f"""
         <div class="user-settings-panel">
           <div class="setting-row">
@@ -747,6 +747,54 @@ def profile(nickname):
     {''.join(f'<div class="thread"><a href="{url_for("thread", thread_id=t[0])}">{t[1]}</a><div class="meta">{t[5]}</div></div>' for t in user_threads) or "<p>Тем нет.</p>"}
     '''
     return render_base(content, f"Профиль {nickname}")
+
+# ===============================
+# 1. Роут сохранения чекбоксов
+# ===============================
+@app.route('/update_setting', methods=['POST'])
+def update_setting():
+    if 'user' not in session:
+        return {'ok': 0}, 403
+    user = session['user']
+    data = request.get_json(force=True)
+    setting = data.get('setting')
+    value = int(bool(data.get('value')))
+    if setting not in ('can_message', 'notify'):
+        return {'ok': 0}, 400
+    db = db_connect()
+    db.execute(f"UPDATE users SET {setting}=? WHERE nickname=?", (value, user))
+    db.commit()
+    db.close()
+    return {'ok': 1}
+
+# ===============================
+# 2. Функция онлайн/оффлайн
+# ===============================
+from datetime import datetime, timedelta
+
+def get_online_status(user):
+    last_seen_str = user.get("last_seen", "")
+    is_online = False
+    minutes_ago = None
+    if last_seen_str:
+        try:
+            try:
+                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S")
+            except ValueError:
+                last_seen = datetime.strptime(last_seen_str, "%Y-%m-%d %H:%M:%S.%f")
+            diff = datetime.utcnow() - last_seen
+            minutes_ago = int(diff.total_seconds() // 60)
+            is_online = diff < timedelta(minutes=3)
+        except Exception:
+            is_online = False
+            minutes_ago = None
+    else:
+        is_online = False
+        minutes_ago = None
+
+    status_text = "в сети" if is_online else (f"был {minutes_ago} мин назад" if minutes_ago is not None else "неизвестно")
+    status_class = "online" if is_online else "offline"
+    return status_text, status_class
 
 @app.route('/profile/<nickname>/admin-action', methods=['POST'])
 @admin_required
@@ -1010,38 +1058,13 @@ def add_friend(nickname):
         flash("Уже отправлено или вы друзья.")
     else:
         db.execute("INSERT INTO friends (user1, user2, status) VALUES (?, ?, 'pending')", (user, nickname))
-        db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
-                   (nickname, f"Пользователь {user} отправил вам заявку в друзья.", url_for('friends'), nowstr()))
+        if get_user(nickname).get("notify", 1):
+            db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
+                (nickname, f"Пользователь {user} отправил вам заявку в друзья.", url_for('friends'), nowstr()))
         db.commit()
         flash("Заявка отправлена!")
     db.close()
     return redirect(url_for("profile", nickname=nickname))
-
-@app.route("/friend-accept/<nickname>")
-@login_required
-def friend_accept(nickname):
-    user = session["user"]
-    db = db_connect()
-    db.execute("UPDATE friends SET status='accepted' WHERE user1=? AND user2=? AND status='pending'", (nickname, user))
-    db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
-               (nickname, f"{user} принял вашу заявку в друзья.", url_for('profile', nickname=user), nowstr()))
-    db.commit()
-    db.close()
-    flash("Друг добавлен!")
-    return redirect(url_for("friends"))
-
-@app.route("/friend-decline/<nickname>")
-@login_required
-def friend_decline(nickname):
-    user = session["user"]
-    db = db_connect()
-    db.execute("DELETE FROM friends WHERE user1=? AND user2=? AND status='pending'", (nickname, user))
-    db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
-               (nickname, f"{user} отклонил вашу заявку в друзья.", url_for('profile', nickname=user), nowstr()))
-    db.commit()
-    db.close()
-    flash("Заявка отклонена.")
-    return redirect(url_for("friends"))
 
 # ----------- Личный чат ----------
 @app.route("/pm/<nickname>", methods=["GET", "POST"])
@@ -1059,15 +1082,22 @@ def private_chat(nickname):
     if not cur.fetchone():
         flash("Только друзья могут писать друг другу.")
         db.close()
-        return redirect(url_for("profile", nickname=nickname))
+        return redirect(url_for('profile', nickname=nickname))
+
+    recipient = get_user(nickname)
+    if not recipient.get("can_message", 1):
+        flash("Пользователь запретил личные сообщения.")
+        db.close()
+        return redirect(url_for('profile', nickname=nickname))
+
     if request.method == "POST":
         text = request.form.get("text", "").strip()
         if text:
             db.execute("INSERT INTO private_messages (sender, recipient, text, date, unread) VALUES (?, ?, ?, ?, 1)", (user, nickname, text, nowstr()))
-            db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
-                (nickname, f"Новое личное сообщение от {user}", url_for('private_chat', nickname=user), nowstr()))
+            if recipient.get("notify", 1):
+                db.execute("INSERT INTO notifications (user, text, url, date) VALUES (?, ?, ?, ?)",
+                    (nickname, f"Новое личное сообщение от {user}", url_for('private_chat', nickname=user), nowstr()))
             db.commit()
-    # !! ВАЖНО: теперь выбираем id и edited для поддержки редактирования:
     cur = db.execute("""
         SELECT id, sender, text, date, edited FROM private_messages
         WHERE (sender=? AND recipient=?) OR (sender=? AND recipient=?)
