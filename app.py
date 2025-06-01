@@ -1,11 +1,10 @@
 import os
 import sqlite3
 import random
-from flask import Flask, render_template_string, request, redirect, url_for, flash, session, abort, send_from_directory, jsonify, get_flashed_messages
-from datetime import datetime, timedelta
+from flask import Flask, render_template, render_template_string, request, redirect, url_for, flash, session, abort, send_from_directory, jsonify, get_flashed_messages
+from datetime import datetime, timedelta, timezone
 from functools import wraps
 from werkzeug.utils import secure_filename
-from flask import Blueprint
 
 app = Flask(__name__)
 app.secret_key = 'supersecretkey'
@@ -15,15 +14,6 @@ os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 os.makedirs(BG_UPLOAD_FOLDER, exist_ok=True)
 ALLOWED_EXTENSIONS = {'png', 'jpg', 'jpeg', 'gif', 'webp', 'mp4', 'webm', 'mov'}
 MAX_AVATAR_SIZE = 2 * 1024 * 1024
-
-# Подключи эти переменные к своему конструктору или config.py, если нужно
-STORY_UPLOAD_FOLDER = 'static/stories'
-os.makedirs(STORY_UPLOAD_FOLDER, exist_ok=True)
-
-# Используй свой набор разрешённых расширений
-MAX_STORY_SIZE = 10 * 1024 * 1024  # 10 MB
-
-bp = Blueprint('stories', __name__, url_prefix='/stories')
 
 from pin_thread import pin_bp
 app.register_blueprint(pin_bp)
@@ -124,14 +114,6 @@ def count_unread_notifications(user):
 
 def db_connect():
     return sqlite3.connect(DB)
-  
-def allowed_file(filename):
-    return '.' in filename and filename.rsplit('.', 1)[1].lower() in ALLOWED_EXTENSIONS
-
-def clean_old_stories():
-    with db_connect() as db:
-        db.execute('DELETE FROM stories WHERE expires < ?', (datetime.utcnow(),))
-        db.commit()
 
 def nowstr():
     return datetime.now().strftime("%Y-%m-%d %H:%M")
@@ -230,138 +212,6 @@ def admin_required(f):
         else:
             abort(403)
     return wrap
-
-@bp.route('/', methods=['GET'])
-def stories_view():
-    clean_old_stories()
-    db = db_connect()
-    now = datetime.utcnow()
-    cur = db.execute(
-        "SELECT s.*, u.avatar FROM stories s JOIN users u ON s.user_nickname=u.nickname WHERE s.expires > ? ORDER BY s.created DESC",
-        (now,))
-    rows = cur.fetchall()
-    db.close()
-    # Группируем по пользователям
-    stories = {}
-    for row in rows:
-        story = dict(zip([desc[0] for desc in cur.description], row))
-        stories.setdefault(story['user_nickname'], []).append(story)
-    # HTML + JS для просмотра историй (Telegram-style, минимум)
-    html = '''
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/microtip/2.0.2/microtip.min.css">
-    <h2>Истории</h2>
-    <div class="stories-bar" style="display:flex;gap:20px;align-items:center;">
-      {% for user, items in stories.items() %}
-        <div class="story-avatar" onclick="openStory('{{ user }}')" style="cursor:pointer;text-align:center;">
-          <img src="{{ items[0]['avatar'] or '/static/default_avatar.png' }}" style="width:56px;height:56px;border-radius:50%;border:2px solid #6cf;">
-          <div style="font-size:14px;">{{ user }}</div>
-        </div>
-      {% endfor %}
-      <div class="story-add" style="text-align:center;">
-        <form action="{{ url_for('stories.stories_upload') }}" method="post" enctype="multipart/form-data">
-          <label style="cursor:pointer;">
-            <img src="/static/add_story.png" style="width:56px;height:56px;border-radius:50%;border:2px dashed #8f8;">
-            <input type="file" name="file" style="display:none;" required onchange="this.form.submit()">
-          </label>
-          <input type="text" name="caption" placeholder="Подпись (необязательно)" style="width:100px;font-size:12px;">
-        </form>
-        <div style="font-size:14px;color:#393;">+ добавить</div>
-      </div>
-    </div>
-    <div id="stories-modal" style="display:none;position:fixed;top:0;left:0;width:100vw;height:100vh;background:rgba(0,0,0,0.96);z-index:1000;color:#fff;">
-      <div id="story-content" style="position:relative;max-width:90vw;max-height:90vh;margin:60px auto 0 auto;text-align:center;"></div>
-      <button onclick="closeStory()" style="position:absolute;top:20px;right:40px;font-size:2.5em;background:none;color:#fff;border:none;cursor:pointer;">×</button>
-      <button onclick="prevStory()" style="position:absolute;top:50%;left:30px;font-size:2em;background:none;color:#fff;border:none;cursor:pointer;">&#8592;</button>
-      <button onclick="nextStory()" style="position:absolute;top:50%;right:30px;font-size:2em;background:none;color:#fff;border:none;cursor:pointer;">&#8594;</button>
-    </div>
-    <script>
-    let stories = {{ stories|tojson }};
-    let users = Object.keys(stories);
-    let currentUser = null, currentIndex = 0;
-    function openStory(user) {
-      currentUser = user;
-      currentIndex = 0;
-      showStory();
-      document.getElementById('stories-modal').style.display = '';
-    }
-    function showStory() {
-      let story = stories[currentUser][currentIndex];
-      let html = "";
-      if (story.content_type.startsWith('image')) {
-        html = `<img src="${story.content_url}" style="max-width:100%;max-height:80vh;border-radius:16px;">`;
-      } else if (story.content_type.startsWith('video')) {
-        html = `<video src="${story.content_url}" controls autoplay style="max-width:100%;max-height:80vh;border-radius:16px;"></video>`;
-      }
-      if (story.caption) html += `<div style="margin-top:10px;font-size:18px;">${story.caption}</div>`;
-      html += `<div style="margin-top:10px;font-size:small;opacity:0.6;">${story.user_nickname}, ${story.created}</div>`;
-      document.getElementById('story-content').innerHTML = html;
-    }
-    function closeStory() {
-      document.getElementById('stories-modal').style.display = 'none';
-      currentUser = null;
-      currentIndex = 0;
-    }
-    function prevStory() {
-      if (currentIndex > 0) { currentIndex--; showStory(); }
-      else {
-        let idx = users.indexOf(currentUser);
-        if (idx > 0) {
-          currentUser = users[idx - 1];
-          currentIndex = 0;
-          showStory();
-        }
-      }
-    }
-    function nextStory() {
-      if (currentIndex < stories[currentUser].length - 1) { currentIndex++; showStory(); }
-      else {
-        let idx = users.indexOf(currentUser);
-        if (idx < users.length - 1) {
-          currentUser = users[idx + 1];
-          currentIndex = 0;
-          showStory();
-        }
-      }
-    }
-    document.addEventListener('keydown', function(e){
-      if(document.getElementById('stories-modal').style.display !== 'none') {
-        if(e.key === "ArrowLeft") prevStory();
-        if(e.key === "ArrowRight") nextStory();
-        if(e.key === "Escape") closeStory();
-      }
-    });
-    </script>
-    <style>
-      .stories-bar::-webkit-scrollbar {display:none;}
-    </style>
-    '''
-    return render_template_string(html, stories=stories)
-
-@bp.route('/upload', methods=['POST'])
-def stories_upload():
-    if not session.get('user'):
-        abort(401)
-    user = session['user']
-    file = request.files.get('file')
-    caption = request.form.get('caption', '')
-    if not file or not allowed_file(file.filename):
-        return "Недопустимый формат файла", 400
-    file.seek(0, os.SEEK_END)
-    if file.tell() > MAX_STORY_SIZE:
-        return "Слишком большой файл", 400
-    file.seek(0)  # верни указатель в начало
-    filename = datetime.utcnow().strftime("%Y%m%d%H%M%S") + "_" + secure_filename(file.filename)
-    file_path = os.path.join(STORY_UPLOAD_FOLDER, filename)
-    file.save(file_path)
-    ext = filename.rsplit('.', 1)[1].lower()
-    content_type = 'video' if ext in ['mp4', 'webm', 'mov'] else 'image'
-    content_url = f"/static/stories/{filename}"
-    expires = datetime.utcnow() + timedelta(days=1)
-    with db_connect() as db:
-        db.execute('INSERT INTO stories (user_nickname, created, expires, content_type, content_url, caption) VALUES (?, ?, ?, ?, ?, ?)',
-            (user, datetime.utcnow(), expires, content_type, content_url, caption))
-        db.commit()
-    return redirect(url_for('stories.stories_view'))
 
 @app.route("/avatars/<filename>")
 def avatar_file(filename):
@@ -629,6 +479,8 @@ def categories_page():
 @app.route('/profile/<nickname>', methods=["GET", "POST"])
 def profile(nickname):
     import random
+    from datetime import datetime, timezone
+    import sqlite3
 
     user = get_user(nickname)
     if not user:
@@ -636,6 +488,7 @@ def profile(nickname):
         return redirect(url_for('index'))
 
     db = db_connect()
+    db.row_factory = sqlite3.Row
     cur = db.execute("SELECT * FROM threads WHERE author=? ORDER BY id DESC", (nickname,))
     user_threads = cur.fetchall()
     db.close()
@@ -668,7 +521,7 @@ def profile(nickname):
         for b in banner_choices:
             banner_html += f'''
             <label class="banner-row">
-              <input type="radio" name="banner" value="{b["id"]}" {"checked" if user.get("banner") == b["id"] else ""}>
+              <input type="radio" name="banner" value="{b["id"]}" {"checked" if user["banner"] == b["id"] else ""}>
               <span class="banner-anim" style="{b["css"]}">{b["label"]}</span>
             </label>
             '''
@@ -696,20 +549,19 @@ def profile(nickname):
         <form method="POST" style="margin:12px 0 22px;">
             <div class="profile-fields">
                 <label>О себе:</label>
-                <textarea name="bio">{user.get("bio", "")}</textarea>
+                <textarea name="bio">{user["bio"] or ""}</textarea>
                 <label>Любимые технологии:</label>
-                <input type="text" name="techs" value="{user.get("techs", "") or ""}">
+                <input type="text" name="techs" value="{user["techs"] or ""}">
                 <label>Город:</label>
-                <input type="text" name="city" value="{user.get("city", "") or ""}">
+                <input type="text" name="city" value="{user["city"] or ""}">
                 <label>Сайт:</label>
-                <input type="text" name="website" value="{user.get("website", "") or ""}">
+                <input type="text" name="website" value="{user["website"] or ""}">
                 <label>Статус/цитата:</label>
-                <input type="text" name="status" value="{user.get("status", "") or ""}">
+                <input type="text" name="status" value="{user["status"] or ""}">
                 <button class="btn" name="save_profile" value="1">Сохранить профиль</button>
             </div>
         </form>
         '''
-
     avatar_form = ""
     if session.get("user") == user["nickname"]:
         avatar_form = f'''
@@ -724,6 +576,7 @@ def profile(nickname):
     friendship_buttons = ""
     if session.get("user") and session["user"] != user["nickname"]:
         db = db_connect()
+        db.row_factory = sqlite3.Row
         cur = db.execute("""
             SELECT status FROM friends
             WHERE (user1=? AND user2=?) OR (user1=? AND user2=?)""",
@@ -732,18 +585,18 @@ def profile(nickname):
         db.close()
         if not friendship:
             friendship_buttons = f'<a href="{url_for("add_friend", nickname=user["nickname"])}" class="btn">Добавить в друзья</a>'
-        elif friendship[0] == "pending":
+        elif friendship["status"] == "pending":
             friendship_buttons = "<span>Заявка отправлена.</span>"
-        elif friendship[0] == "accepted":
+        elif friendship["status"] == "accepted":
             friendship_buttons = f'<a href="{url_for("private_chat", nickname=user["nickname"])}" class="btn">Чат</a>'
 
     # --- ОНЛАЙН/ОФФЛАЙН + НАСТРОЙКИ ЧЕКБОКСОВ ---
-    can_message = int(user.get("can_message", 1))
-    notify = int(user.get("notify", 1))
-    hide_online = int(user.get("hide_online", 0))
+    can_message = int(user["can_message"] if "can_message" in user.keys() else 1)
+    notify = int(user["notify"] if "notify" in user.keys() else 1)
+    hide_online = int(user["hide_online"] if "hide_online" in user.keys() else 0)
 
     # Формируем статус
-    last_seen_str = user.get("last_seen", "")
+    last_seen_str = user["last_seen"] if "last_seen" in user.keys() else ""
     status_text, status_class = humanize_last_seen(last_seen_str, bool(hide_online))
 
     # Панель настроек только для владельца профиля
@@ -800,90 +653,9 @@ def profile(nickname):
         </div>
         """
 
-    # Пример простого шаблона
-    html = f"""
-    <h1>Профиль: {user['nickname']}</h1>
-    {settings_panel}
-    """
-    # --- POST обработка ---
-    if request.method == "POST" and session.get("user") == user["nickname"]:
-        db = db_connect()
-        if request.form.get("set_banner"):
-            new_banner = request.form.get("banner", "")
-            banners_ok = [b["id"] for b in USER_BANNERS + ADMIN_BANNERS]
-            if new_banner in banners_ok:
-                db.execute("UPDATE users SET banner=? WHERE nickname=?", (new_banner, user["nickname"]))
-                db.commit()
-                flash("Баннер обновлен!")
-                return redirect(url_for('profile', nickname=nickname))
-        if request.form.get("set_avatar"):
-            file = request.files.get('avatar')
-            if file and allowed_file(file.filename):
-                ext = file.filename.rsplit('.', 1)[1].lower()
-                fname = f"{user['nickname']}_{int(datetime.now().timestamp())}.{ext}"
-                path = os.path.join(UPLOAD_FOLDER, secure_filename(fname))
-                file.save(path)
-                db.execute("UPDATE users SET avatar=? WHERE nickname=?", (fname, user["nickname"]))
-                db.commit()
-                flash("Аватарка обновлена!")
-                return redirect(url_for('profile', nickname=nickname))
-            elif file:
-                flash("Недопустимый формат файла.")
-        if request.form.get("set_bg"):
-            file = request.files.get('bgfile')
-            if file and allowed_file(file.filename):
-                ext = file.filename.rsplit('.', 1)[1].lower()
-                fname = f"{user['nickname']}_{int(datetime.now().timestamp())}.{ext}"
-                path = os.path.join(BG_UPLOAD_FOLDER, secure_filename(fname))
-                file.save(path)
-                db.execute("UPDATE users SET profile_bg=? WHERE nickname=?", (fname, user["nickname"]))
-                db.commit()
-                flash("Фон профиля обновлен!")
-                return redirect(url_for('profile', nickname=nickname))
-            elif file:
-                flash("Недопустимый формат файла.")
-        if request.form.get("set_bg_preset"):
-            bg = request.form.get("presetbg")
-            if bg in PROFILE_BG_PRESETS:
-                db.execute("UPDATE users SET profile_bg=? WHERE nickname=?", (bg, user["nickname"]))
-                db.commit()
-                flash("Фон профиля обновлен (пресет)!")
-                return redirect(url_for('profile', nickname=nickname))
-        if request.form.get("save_profile"):
-            bio = request.form.get("bio", "")
-            techs = request.form.get("techs", "")
-            city = request.form.get("city", "")
-            website = request.form.get("website", "")
-            status = request.form.get("status", "")
-            db.execute("UPDATE users SET bio=?, techs=?, city=?, website=?, status=? WHERE nickname=?",
-                (bio, techs, city, website, status, user["nickname"]))
-            db.commit()
-            flash("Профиль обновлен!")
-            return redirect(url_for('profile', nickname=nickname))
-        if request.form.get("magic"):
-            all_banners = [b["id"] for b in USER_BANNERS + ADMIN_BANNERS]
-            banner = random.choice(all_banners)
-            bg = random.choice(PROFILE_BG_PRESETS)
-            techs = random.choice([
-                "Python, Flask, JS", "Rust, Go, Linux", "C++, Unreal, Vulkan",
-                "HTML, CSS, JS", "Kubernetes, Docker, CI/CD"
-            ])
-            city = random.choice(["Москва", "Воронеж", "Питер", "Казань", "Новосибирск", "Сочи", ""])
-            quotes = [
-                "🔥 Да пребудет код!", "🚀 Вперёд к багам!", "💻 Пишу без остановки",
-                "🧙 Магия форума", "👾 Жги баги, чини фичи!", "🌈 Код вне радуги!"
-            ]
-            status = random.choice(quotes)
-            db.execute("UPDATE users SET banner=?, profile_bg=?, techs=?, city=?, status=? WHERE nickname=?",
-                (banner, bg, techs, city, status, user["nickname"]))
-            db.commit()
-            flash("✨ MAGIC! Профиль рандомизирован!")
-            return redirect(url_for('profile', nickname=nickname))
-        db.close()
-
     profile_bg = get_profile_bg(user)
     extra = ""
-    if user.get("status") and "matrix" in user["status"].lower():
+    if user["status"] and "matrix" in user["status"].lower():
         extra = '<style>body{background:#101812!important;color:#0f0!important;}</style>'
     profile_url = request.url
 
@@ -923,7 +695,6 @@ def profile(nickname):
     {''.join(f'<div class="thread"><a href="{url_for("thread", thread_id=t[0])}">{t[1]}</a><div class="meta">{t[5]}</div></div>' for t in user_threads) or "<p>Тем нет.</p>"}
     '''
     return render_base(content, f"Профиль {nickname}")
-
 
 
 @app.route('/profile/<nickname>/admin-action', methods=['POST'])
@@ -1408,6 +1179,33 @@ def update_setting():
     db.close()
     return jsonify({"ok": True})
 
+@app.route('/stories/upload/<nickname>', methods=["GET", "POST"])
+def story_upload(nickname):
+    if session.get('user') != nickname:
+        abort(403)
+    if request.method == 'POST':
+        file = request.files.get('file')
+        caption = request.form.get('caption', '')
+        if not file or not allowed_file(file.filename):
+            return "Недопустимый формат файла", 400
+        file.seek(0, os.SEEK_END)
+        if file.tell() > MAX_STORY_SIZE:
+            return "Слишком большой файл", 400
+        file.seek(0)
+        filename = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S") + "_" + secure_filename(file.filename)
+        file_path = os.path.join(UPLOAD_FOLDER, filename)
+        file.save(file_path)
+        ext = filename.rsplit('.', 1)[1].lower()
+        content_type = 'video' if ext in ['mp4', 'webm', 'mov'] else 'image'
+        content_url = f"/static/stories/{filename}"
+        expires = datetime.now(timezone.utc) + timedelta(days=1)
+        with db_connect() as db:
+            db.execute(
+                'INSERT INTO stories (user_nickname, created, expires, content_type, content_url, caption) VALUES (?, ?, ?, ?, ?, ?)',
+                (nickname, datetime.now(timezone.utc), expires, content_type, content_url, caption))
+            db.commit()
+        return redirect(url_for('profile', nickname=nickname))
+    return render_template('story_upload.html', nickname=nickname)
 
 BASE_STYLE = """
 <style>
@@ -1647,6 +1445,7 @@ input:checked + .slider:before {
 }
 .status-dot.online { background: #00e05a; box-shadow: 0 0 8px #1ed76077; }
 .status-dot.offline { background: #999; }
+
 </style>
 <script>
 function toggleMenu() {
