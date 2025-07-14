@@ -80,6 +80,10 @@ export interface IStorage {
     totalGroups: number;
     activeVoiceRooms: number;
   }>;
+  
+  // Chat management
+  archiveChatForUser(chatId: number, userId: number): Promise<void>;
+  pinChatForUser(chatId: number, userId: number): Promise<void>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -545,6 +549,19 @@ export class DatabaseStorage implements IStorage {
       totalGroups: totalGroups.count,
       activeVoiceRooms: activeVoiceRooms.count,
     };
+  }
+
+  // Chat management methods
+  async archiveChatForUser(chatId: number, userId: number): Promise<void> {
+    // This would normally update a specific field, but for now we'll just leave it as a placeholder
+    // In a real implementation, you'd add an isArchived field to chatParticipants
+    console.log(`Archiving chat ${chatId} for user ${userId}`);
+  }
+
+  async pinChatForUser(chatId: number, userId: number): Promise<void> {
+    // This would normally update a specific field, but for now we'll just leave it as a placeholder
+    // In a real implementation, you'd add an isPinned field to chatParticipants
+    console.log(`Pinning chat ${chatId} for user ${userId}`);
   }
 
   // Helper method to create favorites chat

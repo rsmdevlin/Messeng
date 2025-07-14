@@ -65,23 +65,23 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
   const sendMessageMutation = useMutation({
     mutationFn: async (content: string) => {
       const response = await apiRequest('POST', `/api/chats/${chatId}/messages`, {
-        content,
+        content
       });
       return response.json();
     },
-    onSuccess: (newMessage) => {
+    onSuccess: (data, content) => {
+      queryClient.invalidateQueries({ queryKey: ['/api/chats', chatId, 'messages'] });
+      queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
+
       // Send via WebSocket
       sendMessage({
         type: 'message',
         chatId,
-        content: newMessage.content,
+        content: content
       });
-      
-      // Update local cache
-      queryClient.invalidateQueries({ queryKey: ['/api/chats', chatId, 'messages'] });
-      queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
     },
-    onError: (error: any) => {
+    onError: (error) => {
+      console.error('Failed to send message:', error);
       toast({
         title: "Ошибка",
         description: "Не удалось отправить сообщение",
@@ -115,10 +115,10 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
 
   const handleSendMessage = async () => {
     if (!messageText.trim()) return;
-    
+
     const content = messageText.trim();
     setMessageText("");
-    
+
     await sendMessageMutation.mutateAsync(content);
   };
 
@@ -147,7 +147,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
 
   const getChatTitle = () => {
     if (!chat) return "Чат";
-    
+
     switch (chat.type) {
       case 'favorites':
         return 'Избранное';
@@ -162,7 +162,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
 
   const getChatSubtitle = () => {
     if (!chat) return "";
-    
+
     switch (chat.type) {
       case 'favorites':
         return 'Ваши сохраненные сообщения';
@@ -187,7 +187,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
         >
           <ArrowLeft className="w-5 h-5 text-white" />
         </Button>
-        
+
         <div className="flex-1 flex items-center">
           <div className="w-10 h-10 rounded-full flex items-center justify-center gradient-bg mr-3">
             <span className="text-white font-bold">
@@ -199,7 +199,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
             <p className="text-sm text-white/70">{getChatSubtitle()}</p>
           </div>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           <Button
             variant="ghost"
@@ -254,7 +254,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
                   </div>
                 )}
               </div>
-              
+
               {/* Add to favorites button */}
               {message.senderId !== user?.id && (
                 <Button
@@ -269,7 +269,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
             </div>
           </div>
         ))}
-        
+
         <div ref={messagesEndRef} />
       </div>
 
@@ -283,7 +283,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
           >
             <Paperclip className="w-5 h-5" style={{ color: 'var(--neo-text)' }} />
           </Button>
-          
+
           <div className="flex-1">
             <Input
               type="text"
@@ -299,7 +299,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
               }}
             />
           </div>
-          
+
           <Button
             onClick={handleSendMessage}
             disabled={!messageText.trim() || sendMessageMutation.isPending}

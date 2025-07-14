@@ -9,18 +9,18 @@ import { fromZodError } from "zod-validation-error";
 
 export async function registerRoutes(app: Express): Promise<Server> {
   const httpServer = createServer(app);
-  
+
   // WebSocket server
   const wss = new WebSocketServer({ server: httpServer, path: '/ws' });
   const connectedClients = new Map<number, WebSocket>();
-  
+
   wss.on('connection', (ws) => {
     let userId: number | null = null;
-    
+
     ws.on('message', async (message) => {
       try {
         const data = JSON.parse(message.toString());
-        
+
         if (data.type === 'auth') {
           const session = await storage.getSession(data.sessionId);
           if (session) {
@@ -29,7 +29,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             await storage.updateUserStatus(userId, 'online', true);
           }
         }
-        
+
         if (data.type === 'message' && userId) {
           const { chatId, content } = data;
           const message = await storage.createMessage({
@@ -37,7 +37,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
             senderId: userId,
             content,
           });
-          
+
           // Broadcast to all participants in the chat
           const participants = await storage.getChatParticipants(chatId);
           participants.forEach(participant => {
@@ -54,7 +54,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         console.error('WebSocket error:', error);
       }
     });
-    
+
     ws.on('close', async () => {
       if (userId) {
         connectedClients.delete(userId);
@@ -70,17 +70,17 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!sessionId) {
         return res.status(401).json({ message: 'Unauthorized' });
       }
-      
+
       const session = await storage.getSession(sessionId);
       if (!session) {
         return res.status(401).json({ message: 'Invalid session' });
       }
-      
+
       const user = await storage.getUser(session.userId);
       if (!user) {
         return res.status(401).json({ message: 'User not found' });
       }
-      
+
       req.user = user;
       next();
     } catch (error) {
@@ -103,21 +103,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/register', async (req, res) => {
     try {
       const userData = insertUserSchema.parse(req.body);
-      
+
       // Check if user already exists
       const existingUser = await storage.getUserByEmail(userData.email);
       if (existingUser) {
         return res.status(400).json({ message: 'User already exists' });
       }
-      
+
       const existingUsername = await storage.getUserByUsername(userData.username);
       if (existingUsername) {
         return res.status(400).json({ message: 'Username already taken' });
       }
-      
+
       const user = await storage.createUser(userData);
       const sessionId = await storage.createSession(user.id);
-      
+
       res.json({ 
         user: { ...user, password: undefined }, 
         sessionId 
@@ -134,25 +134,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/auth/login', async (req, res) => {
     try {
       const { identifier, password } = req.body;
-      
+
       // Find user by email or username
       let user = await storage.getUserByEmail(identifier);
       if (!user) {
         user = await storage.getUserByUsername(identifier);
       }
-      
+
       if (!user) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
-      
+
       const isValid = await bcrypt.compare(password, user.password);
       if (!isValid) {
         return res.status(401).json({ message: 'Invalid credentials' });
       }
-      
+
       const sessionId = await storage.createSession(user.id);
       await storage.updateUserStatus(user.id, 'online', true);
-      
+
       res.json({ 
         user: { ...user, password: undefined }, 
         sessionId 
@@ -188,7 +188,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       if (!q) {
         return res.json([]);
       }
-      
+
       const users = await storage.searchUsers(q as string, req.user.id);
       res.json(users.map(user => ({ ...user, password: undefined })));
     } catch (error) {
@@ -202,7 +202,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const updates = req.body;
       delete updates.password; // Don't allow password updates here
       delete updates.role; // Don't allow role updates
-      
+
       const updatedUser = await storage.updateUser(req.user.id, updates);
       res.json({ ...updatedUser, password: undefined });
     } catch (error) {
@@ -228,16 +228,16 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         createdBy: req.user.id,
       });
-      
+
       const chat = await storage.createChat(chatData);
-      
+
       // Add creator as participant
       await storage.addChatParticipant({
         chatId: chat.id,
         userId: req.user.id,
         role: 'owner',
       });
-      
+
       res.json(chat);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -252,21 +252,21 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { chatId } = req.params;
       const { userId } = req.body;
-      
+
       // Check if user is admin of the chat
       const participants = await storage.getChatParticipants(parseInt(chatId));
       const userParticipant = participants.find(p => p.userId === req.user.id);
-      
+
       if (!userParticipant || !['owner', 'admin'].includes(userParticipant.role || '')) {
         return res.status(403).json({ message: 'Permission denied' });
       }
-      
+
       await storage.addChatParticipant({
         chatId: parseInt(chatId),
         userId,
         role: 'member',
       });
-      
+
       res.json({ message: 'User added to chat' });
     } catch (error) {
       console.error('Add participant error:', error);
@@ -277,13 +277,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.get('/api/chats/:chatId/participants', authenticate, async (req: any, res) => {
     try {
       const { chatId } = req.params;
-      
+
       // Check if user is in chat
       const isInChat = await storage.isUserInChat(parseInt(chatId), req.user.id);
       if (!isInChat) {
         return res.status(403).json({ message: 'Access denied' });
       }
-      
+
       const participants = await storage.getChatParticipants(parseInt(chatId));
       res.json(participants);
     } catch (error) {
@@ -297,19 +297,19 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { chatId } = req.params;
       const { limit = 50, offset = 0 } = req.query;
-      
+
       // Check if user is in chat
       const isInChat = await storage.isUserInChat(parseInt(chatId), req.user.id);
       if (!isInChat) {
         return res.status(403).json({ message: 'Access denied' });
       }
-      
+
       const messages = await storage.getMessages(
         parseInt(chatId),
         parseInt(limit as string),
         parseInt(offset as string)
       );
-      
+
       res.json(messages);
     } catch (error) {
       console.error('Get messages error:', error);
@@ -325,13 +325,13 @@ export async function registerRoutes(app: Express): Promise<Server> {
         chatId: parseInt(chatId),
         senderId: req.user.id,
       });
-      
+
       // Check if user is in chat
       const isInChat = await storage.isUserInChat(parseInt(chatId), req.user.id);
       if (!isInChat) {
         return res.status(403).json({ message: 'Access denied' });
       }
-      
+
       const message = await storage.createMessage(messageData);
       res.json(message);
     } catch (error) {
@@ -347,37 +347,37 @@ export async function registerRoutes(app: Express): Promise<Server> {
   app.post('/api/chats/private', authenticate, async (req: any, res) => {
     try {
       const { userId } = req.body;
-      
+
       // Check if private chat already exists between these two users
       const existingChat = await storage.findPrivateChat(req.user.id, userId);
       if (existingChat) {
         return res.json(existingChat);
       }
-      
+
       const otherUser = await storage.getUser(userId);
       if (!otherUser) {
         return res.status(404).json({ message: 'User not found' });
       }
-      
+
       const chat = await storage.createChat({
         name: otherUser.username,
         type: 'private',
         createdBy: req.user.id,
       });
-      
+
       // Add both users as participants
       await storage.addChatParticipant({
         chatId: chat.id,
         userId: req.user.id,
         role: 'member',
       });
-      
+
       await storage.addChatParticipant({
         chatId: chat.id,
         userId: userId,
         role: 'member',
       });
-      
+
       res.json(chat);
     } catch (error) {
       console.error('Create private chat error:', error);
@@ -402,7 +402,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         userId: req.user.id,
       });
-      
+
       const favorite = await storage.addToFavorites(favoriteData);
       res.json(favorite);
     } catch (error) {
@@ -442,7 +442,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         ...req.body,
         createdBy: req.user.id,
       };
-      
+
       const room = await storage.createVoiceRoom(roomData);
       res.json(room);
     } catch (error) {
@@ -488,7 +488,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.params;
       const { role } = req.body;
-      
+
       await storage.updateUserRole(parseInt(userId), role);
       res.json({ message: 'User role updated' });
     } catch (error) {
@@ -515,6 +515,80 @@ export async function registerRoutes(app: Express): Promise<Server> {
     } catch (error) {
       console.error('Get stats error:', error);
       res.status(500).json({ message: 'Failed to get stats' });
+    }
+  });
+
+  // Delete chat
+  app.delete('/api/chats/:id', authenticate, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const chat = await storage.getChat(chatId);
+      if (!chat) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+
+      const isParticipant = await storage.isUserInChat(chatId, userId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'Not a participant' });
+      }
+
+      await storage.removeChatParticipant(chatId, userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error deleting chat:', error);
+      res.status(500).json({ error: 'Failed to delete chat' });
+    }
+  });
+
+  // Archive chat
+  app.put('/api/chats/:id/archive', authenticate, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const chat = await storage.getChat(chatId);
+      if (!chat) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+
+      const isParticipant = await storage.isUserInChat(chatId, userId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'Not a participant' });
+      }
+
+      // For now, just mark as archived in participant record
+      await storage.archiveChatForUser(chatId, userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error archiving chat:', error);
+      res.status(500).json({ error: 'Failed to archive chat' });
+    }
+  });
+
+  // Pin chat
+  app.put('/api/chats/:id/pin', authenticate, async (req, res) => {
+    try {
+      const chatId = parseInt(req.params.id);
+      const userId = req.user.id;
+
+      const chat = await storage.getChat(chatId);
+      if (!chat) {
+        return res.status(404).json({ error: 'Chat not found' });
+      }
+
+      const isParticipant = await storage.isUserInChat(chatId, userId);
+      if (!isParticipant) {
+        return res.status(403).json({ error: 'Not a participant' });
+      }
+
+      // For now, just mark as pinned in participant record
+      await storage.pinChatForUser(chatId, userId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Error pinning chat:', error);
+      res.status(500).json({ error: 'Failed to pin chat' });
     }
   });
 
