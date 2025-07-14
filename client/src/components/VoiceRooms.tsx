@@ -1,41 +1,42 @@
+
 import { useState } from "react";
+import { useAuth } from "@/hooks/useAuth";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiRequest } from "@/lib/queryClient";
-import { useAuth } from "@/hooks/useAuth";
 import { useToast } from "@/hooks/use-toast";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import { Badge } from "@/components/ui/badge";
 import { 
   Mic, 
   MicOff, 
-  X, 
   Users, 
-  Volume2, 
-  VolumeX,
-  Plus,
-  Settings,
-  Eye,
-  EyeOff
+  Plus, 
+  X, 
+  Phone,
+  PhoneOff,
+  UserPlus,
+  Volume2,
+  VolumeX
 } from "lucide-react";
 
 interface VoiceRoom {
   id: number;
   name: string;
   maxParticipants: number;
+  participants: VoiceRoomParticipant[];
   isActive: boolean;
   createdBy: number;
-  participants: Array<{
+}
+
+interface VoiceRoomParticipant {
+  id: number;
+  userId: number;
+  isMuted: boolean;
+  user: {
     id: number;
-    userId: number;
-    isMuted: boolean;
-    user: {
-      id: number;
-      username: string;
-      avatar: string;
-    };
-  }>;
+    username: string;
+  };
 }
 
 interface VoiceRoomsProps {
@@ -49,11 +50,30 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
   const [showCreateRoom, setShowCreateRoom] = useState(false);
   const [newRoomName, setNewRoomName] = useState("");
   const [selectedRoom, setSelectedRoom] = useState<VoiceRoom | null>(null);
+  const [showInviteModal, setShowInviteModal] = useState<VoiceRoom | null>(null);
+  const [inviteQuery, setInviteQuery] = useState("");
+  const [isConnected, setIsConnected] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
 
   // Fetch voice rooms
-  const { data: voiceRooms = [] } = useQuery({
+  const { data: voiceRooms = [], refetch } = useQuery({
     queryKey: ['/api/voice-rooms'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/voice-rooms');
+      return response.json();
+    },
     refetchInterval: 3000,
+  });
+
+  // Search users for invites
+  const { data: searchResults = [] } = useQuery({
+    queryKey: ['/api/users/search', inviteQuery],
+    queryFn: async () => {
+      if (!inviteQuery.trim()) return [];
+      const response = await apiRequest('GET', `/api/users/search?q=${encodeURIComponent(inviteQuery)}`);
+      return response.json();
+    },
+    enabled: !!inviteQuery.trim(),
   });
 
   // Create voice room mutation
@@ -71,16 +91,16 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
         description: "Голосовая комната успешно создана",
       });
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
         title: "Ошибка",
-        description: "Не удалось создать комнату",
+        description: "Не удалось создать голосовую комнату",
         variant: "destructive",
       });
     },
   });
 
-  // Join room mutation
+  // Join voice room mutation
   const joinRoomMutation = useMutation({
     mutationFn: async (roomId: number) => {
       const response = await apiRequest('POST', `/api/voice-rooms/${roomId}/join`);
@@ -88,12 +108,13 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/voice-rooms'] });
+      setIsConnected(true);
       toast({
-        title: "Подключение успешно",
-        description: "Вы подключились к голосовой комнате",
+        title: "Подключен к комнате",
+        description: "Вы успешно подключились к голосовой комнате",
       });
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
         title: "Ошибка",
         description: "Не удалось подключиться к комнате",
@@ -102,7 +123,7 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
     },
   });
 
-  // Leave room mutation
+  // Leave voice room mutation
   const leaveRoomMutation = useMutation({
     mutationFn: async (roomId: number) => {
       const response = await apiRequest('POST', `/api/voice-rooms/${roomId}/leave`);
@@ -110,15 +131,43 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['/api/voice-rooms'] });
+      setIsConnected(false);
+      setSelectedRoom(null);
       toast({
-        title: "Отключение успешно",
+        title: "Покинули комнату",
         description: "Вы покинули голосовую комнату",
       });
     },
-    onError: (error: any) => {
+    onError: () => {
       toast({
         title: "Ошибка",
         description: "Не удалось покинуть комнату",
+        variant: "destructive",
+      });
+    },
+  });
+
+  // Send voice invite mutation
+  const sendInviteMutation = useMutation({
+    mutationFn: async ({ userId, roomId }: { userId: number; roomId: number }) => {
+      const response = await apiRequest('POST', '/api/voice-rooms/invite', {
+        userId,
+        roomId
+      });
+      return response.json();
+    },
+    onSuccess: () => {
+      toast({
+        title: "Приглашение отправлено",
+        description: "Пользователь получил приглашение в голосовую комнату",
+      });
+      setShowInviteModal(null);
+      setInviteQuery("");
+    },
+    onError: () => {
+      toast({
+        title: "Ошибка",
+        description: "Не удалось отправить приглашение",
         variant: "destructive",
       });
     },
@@ -129,32 +178,52 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
     
     createRoomMutation.mutate({
       name: newRoomName.trim(),
-      maxParticipants: 10,
+      maxParticipants: 10
     });
   };
 
-  const handleJoinRoom = (roomId: number) => {
-    joinRoomMutation.mutate(roomId);
+  const handleJoinRoom = (room: VoiceRoom) => {
+    setSelectedRoom(room);
+    joinRoomMutation.mutate(room.id);
   };
 
-  const handleLeaveRoom = (roomId: number) => {
-    leaveRoomMutation.mutate(roomId);
+  const handleLeaveRoom = () => {
+    if (selectedRoom) {
+      leaveRoomMutation.mutate(selectedRoom.id);
+    }
   };
 
-  const isUserInRoom = (room: VoiceRoom) => {
-    return room.participants.some(p => p.userId === user?.id);
+  const handleInviteUser = (userId: number) => {
+    if (showInviteModal) {
+      sendInviteMutation.mutate({
+        userId,
+        roomId: showInviteModal.id
+      });
+    }
+  };
+
+  const toggleMute = () => {
+    setIsMuted(!isMuted);
+    toast({
+      title: isMuted ? "Микрофон включен" : "Микрофон выключен",
+      description: isMuted ? "Теперь вас слышно" : "Теперь вас не слышно",
+    });
   };
 
   const getRoomStatusColor = (room: VoiceRoom) => {
     if (room.participants.length === 0) return 'bg-gray-500';
-    if (room.participants.some(p => !p.isMuted)) return 'bg-red-500';
-    return 'bg-green-500';
+    if (room.participants.some(p => !p.isMuted)) return 'bg-green-500';
+    return 'bg-yellow-500';
   };
 
   const getRoomStatusText = (room: VoiceRoom) => {
     if (room.participants.length === 0) return 'Пусто';
     if (room.participants.some(p => !p.isMuted)) return 'Активный разговор';
     return 'Все отключены';
+  };
+
+  const isUserInRoom = (room: VoiceRoom) => {
+    return room.participants.some(p => p.userId === user?.id);
   };
 
   return (
@@ -188,6 +257,71 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
               </Button>
             </div>
           </div>
+
+          {/* Connected Room Display */}
+          {selectedRoom && isConnected && (
+            <div className="p-4 border-b" style={{ borderColor: 'var(--neo-border)' }}>
+              <div className="gradient-border">
+                <div className="gradient-border-inner p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <h4 className="font-medium text-white">{selectedRoom.name}</h4>
+                    <Button
+                      onClick={handleLeaveRoom}
+                      variant="destructive"
+                      size="sm"
+                    >
+                      <PhoneOff className="w-4 h-4 mr-1" />
+                      Покинуть
+                    </Button>
+                  </div>
+                  
+                  <div className="flex items-center justify-center space-x-4">
+                    <Button
+                      onClick={toggleMute}
+                      variant={isMuted ? "destructive" : "default"}
+                      size="sm"
+                      className="flex items-center"
+                    >
+                      {isMuted ? <MicOff className="w-4 h-4 mr-1" /> : <Mic className="w-4 h-4 mr-1" />}
+                      {isMuted ? "Включить микрофон" : "Выключить микрофон"}
+                    </Button>
+                    
+                    <Button
+                      onClick={() => setShowInviteModal(selectedRoom)}
+                      variant="outline"
+                      size="sm"
+                    >
+                      <UserPlus className="w-4 h-4 mr-1" />
+                      Пригласить
+                    </Button>
+                  </div>
+                  
+                  <div className="mt-3">
+                    <p className="text-sm" style={{ color: 'var(--neo-text)' }}>
+                      Участники ({selectedRoom.participants.length}):
+                    </p>
+                    <div className="flex flex-wrap gap-2 mt-2">
+                      {selectedRoom.participants.map((participant) => (
+                        <div key={participant.id} className="flex items-center space-x-1">
+                          <div className="w-6 h-6 rounded-full gradient-bg flex items-center justify-center">
+                            <span className="text-xs text-white">
+                              {participant.user.username.charAt(0)}
+                            </span>
+                          </div>
+                          <span className="text-sm text-white">{participant.user.username}</span>
+                          {participant.isMuted ? (
+                            <MicOff className="w-3 h-3 text-red-500" />
+                          ) : (
+                            <Volume2 className="w-3 h-3 text-green-500" />
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
           
           <div className="p-4 space-y-4 max-h-96 overflow-y-auto scrollbar-hidden">
             {voiceRooms.length === 0 ? (
@@ -210,53 +344,59 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
                         <div className={`w-3 h-3 rounded-full mr-2 ${getRoomStatusColor(room)}`}></div>
                         <h4 className="font-medium text-white">{room.name}</h4>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setSelectedRoom(room)}
-                        className="p-1 rounded-full hover:bg-white/10"
-                      >
-                        <Settings className="w-4 h-4" style={{ color: 'var(--neo-text)' }} />
-                      </Button>
+                      <div className="flex items-center space-x-2">
+                        {!isUserInRoom(room) ? (
+                          <>
+                            <Button
+                              onClick={() => setShowInviteModal(room)}
+                              variant="outline"
+                              size="sm"
+                            >
+                              <UserPlus className="w-3 h-3" />
+                            </Button>
+                            <Button
+                              onClick={() => handleJoinRoom(room)}
+                              variant="default"
+                              size="sm"
+                            >
+                              <Phone className="w-3 h-3 mr-1" />
+                              Войти
+                            </Button>
+                          </>
+                        ) : (
+                          <Badge variant="default">В комнате</Badge>
+                        )}
+                      </div>
                     </div>
                     
-                    <p className="text-sm mb-3" style={{ color: 'var(--neo-text)' }}>
-                      {room.participants.length} участник{room.participants.length !== 1 ? 'а' : ''} • {getRoomStatusText(room)}
-                    </p>
-                    
-                    <div className="flex items-center space-x-2 mb-3">
-                      {room.participants.slice(0, 4).map((participant) => (
-                        <div key={participant.id} className="relative">
-                          <div className="w-8 h-8 rounded-full flex items-center justify-center gradient-bg">
-                            <span className="text-white text-xs font-bold">
-                              {participant.user.username.charAt(0).toUpperCase()}
-                            </span>
-                          </div>
-                          {participant.isMuted && (
-                            <div className="absolute -bottom-1 -right-1 w-4 h-4 bg-red-500 rounded-full flex items-center justify-center">
-                              <MicOff className="w-2 h-2 text-white" />
+                    <div className="flex items-center justify-between text-sm">
+                      <span style={{ color: 'var(--neo-text)' }}>
+                        {getRoomStatusText(room)}
+                      </span>
+                      <span style={{ color: 'var(--neo-text)' }}>
+                        <Users className="w-4 h-4 inline mr-1" />
+                        {room.participants.length}/{room.maxParticipants}
+                      </span>
+                    </div>
+
+                    {room.participants.length > 0 && (
+                      <div className="mt-2 flex flex-wrap gap-1">
+                        {room.participants.slice(0, 3).map((participant) => (
+                          <div key={participant.id} className="flex items-center space-x-1">
+                            <div className="w-5 h-5 rounded-full gradient-bg flex items-center justify-center">
+                              <span className="text-xs text-white">
+                                {participant.user.username.charAt(0)}
+                              </span>
                             </div>
-                          )}
-                        </div>
-                      ))}
-                      {room.participants.length > 4 && (
-                        <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ background: 'var(--neo-border)' }}>
-                          <span className="text-white text-xs">+{room.participants.length - 4}</span>
-                        </div>
-                      )}
-                    </div>
-                    
-                    <Button
-                      onClick={() => isUserInRoom(room) ? handleLeaveRoom(room.id) : handleJoinRoom(room.id)}
-                      disabled={joinRoomMutation.isPending || leaveRoomMutation.isPending}
-                      className={`w-full font-medium ${
-                        isUserInRoom(room) 
-                          ? 'bg-red-600 hover:bg-red-700 text-white' 
-                          : 'gradient-bg text-white hover:opacity-90'
-                      }`}
-                    >
-                      {isUserInRoom(room) ? 'Покинуть' : 'Присоединиться'}
-                    </Button>
+                          </div>
+                        ))}
+                        {room.participants.length > 3 && (
+                          <span className="text-xs" style={{ color: 'var(--neo-text)' }}>
+                            +{room.participants.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </div>
                 </div>
               ))
@@ -266,100 +406,86 @@ export default function VoiceRooms({ onClose }: VoiceRoomsProps) {
       </div>
 
       {/* Create Room Modal */}
-      <Dialog open={showCreateRoom} onOpenChange={setShowCreateRoom}>
-        <DialogContent className="w-full max-w-md" style={{ 
-          background: 'var(--neo-surface)', 
-          border: '1px solid var(--neo-border)' 
-        }}>
-          <DialogHeader>
-            <DialogTitle className="text-white">Создать голосовую комнату</DialogTitle>
-          </DialogHeader>
-          
-          <div className="space-y-4">
-            <div>
-              <Label htmlFor="roomName" className="text-white">Название комнаты</Label>
-              <Input
-                id="roomName"
-                value={newRoomName}
-                onChange={(e) => setNewRoomName(e.target.value)}
-                placeholder="Введите название..."
-                className="mt-2"
-                style={{ 
-                  background: 'var(--neo-border)',
-                  border: '1px solid var(--neo-border)',
-                  color: 'white'
-                }}
-              />
-            </div>
-            
+      {showCreateRoom && (
+        <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-80">
+            <h3 className="text-lg font-semibold mb-4">Создать голосовую комнату</h3>
+            <Input
+              placeholder="Название комнаты"
+              value={newRoomName}
+              onChange={(e) => setNewRoomName(e.target.value)}
+              className="mb-4"
+            />
             <div className="flex space-x-2">
-              <Button
-                variant="outline"
-                onClick={() => setShowCreateRoom(false)}
-                className="flex-1"
-                style={{ borderColor: 'var(--neo-border)', color: 'white' }}
-              >
-                Отмена
-              </Button>
               <Button
                 onClick={handleCreateRoom}
                 disabled={!newRoomName.trim() || createRoomMutation.isPending}
-                className="flex-1 gradient-bg text-white"
+                className="flex-1"
               >
-                {createRoomMutation.isPending ? 'Создание...' : 'Создать'}
+                Создать
+              </Button>
+              <Button
+                variant="outline"
+                onClick={() => {
+                  setShowCreateRoom(false);
+                  setNewRoomName("");
+                }}
+                className="flex-1"
+              >
+                Отмена
               </Button>
             </div>
           </div>
-        </DialogContent>
-      </Dialog>
+        </div>
+      )}
 
-      {/* Room Details Modal */}
-      {selectedRoom && (
-        <Dialog open={!!selectedRoom} onOpenChange={() => setSelectedRoom(null)}>
-          <DialogContent className="w-full max-w-md" style={{ 
-            background: 'var(--neo-surface)', 
-            border: '1px solid var(--neo-border)' 
-          }}>
-            <DialogHeader>
-              <DialogTitle className="text-white">{selectedRoom.name}</DialogTitle>
-            </DialogHeader>
+      {/* Invite Modal */}
+      {showInviteModal && (
+        <div className="fixed inset-0 z-60 bg-black/50 flex items-center justify-center">
+          <div className="bg-white rounded-lg p-6 w-80">
+            <h3 className="text-lg font-semibold mb-4">
+              Пригласить в комнату "{showInviteModal.name}"
+            </h3>
+            <Input
+              placeholder="Поиск пользователей..."
+              value={inviteQuery}
+              onChange={(e) => setInviteQuery(e.target.value)}
+              className="mb-4"
+            />
             
-            <div className="space-y-4">
-              <div className="text-sm" style={{ color: 'var(--neo-text)' }}>
-                Участники: {selectedRoom.participants.length}/{selectedRoom.maxParticipants}
-              </div>
-              
-              <div className="space-y-2">
-                {selectedRoom.participants.map((participant) => (
-                  <div key={participant.id} className="flex items-center justify-between p-2 rounded" style={{ background: 'var(--neo-border)' }}>
-                    <div className="flex items-center">
-                      <div className="w-8 h-8 rounded-full flex items-center justify-center gradient-bg mr-3">
-                        <span className="text-white text-xs font-bold">
-                          {participant.user.username.charAt(0).toUpperCase()}
-                        </span>
-                      </div>
-                      <span className="text-white">{participant.user.username}</span>
+            <div className="max-h-40 overflow-y-auto space-y-2">
+              {searchResults.map((searchUser: any) => (
+                <div key={searchUser.id} className="flex items-center justify-between p-2 border rounded">
+                  <div className="flex items-center">
+                    <div className="w-8 h-8 rounded-full bg-blue-500 flex items-center justify-center mr-2">
+                      <span className="text-white text-sm font-bold">
+                        {searchUser.username.charAt(0)}
+                      </span>
                     </div>
-                    <div className="flex items-center space-x-2">
-                      {participant.isMuted ? (
-                        <MicOff className="w-4 h-4 text-red-500" />
-                      ) : (
-                        <Mic className="w-4 h-4 text-green-500" />
-                      )}
-                      <Volume2 className="w-4 h-4" style={{ color: 'var(--neo-text)' }} />
-                    </div>
+                    <span>{searchUser.username}</span>
                   </div>
-                ))}
-              </div>
-              
-              {selectedRoom.participants.length === 0 && (
-                <div className="text-center py-4" style={{ color: 'var(--neo-text)' }}>
-                  Комната пуста
+                  <Button
+                    onClick={() => handleInviteUser(searchUser.id)}
+                    size="sm"
+                  >
+                    Пригласить
+                  </Button>
                 </div>
-              )}
+              ))}
             </div>
-          </DialogContent>
-        </Dialog>
+            
+            <Button
+              variant="outline"
+              onClick={() => {
+                setShowInviteModal(null);
+                setInviteQuery("");
+              }}
+              className="w-full mt-4"
+            >
+              Закрыть
+            </Button>
+          </div>
+        </div>
       )}
     </div>
   );

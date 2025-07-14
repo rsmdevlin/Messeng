@@ -160,7 +160,7 @@ export default function Chat() {
             </div>
           </div>
         </div>
-        
+
         <div className="flex items-center space-x-2">
           <Button
             variant="ghost"
@@ -170,7 +170,7 @@ export default function Chat() {
           >
             <Search className="w-4 h-4 text-white" />
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
@@ -179,7 +179,7 @@ export default function Chat() {
           >
             <Mic className="w-4 h-4 text-white" />
           </Button>
-          
+
           <Button
             variant="ghost"
             size="sm"
@@ -201,7 +201,7 @@ export default function Chat() {
         >
           <Star className="w-5 h-5 text-white" />
         </Button>
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -210,7 +210,7 @@ export default function Chat() {
         >
           <Palette className="w-5 h-5 text-white" />
         </Button>
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -219,7 +219,7 @@ export default function Chat() {
         >
           <Users className="w-5 h-5 text-white" />
         </Button>
-        
+
         <Button
           variant="ghost"
           size="sm"
@@ -274,19 +274,19 @@ export default function Chat() {
           onChatStart={handleChatSelect}
         />
       )}
-      
+
       {showProfileSettings && (
         <ProfileSettings
           onClose={() => setShowProfileSettings(false)}
         />
       )}
-      
+
       {showVoiceRooms && (
         <VoiceRooms
           onClose={() => setShowVoiceRooms(false)}
         />
       )}
-      
+
       {showThemeSelector && (
         <ThemeSelector
           onClose={() => setShowThemeSelector(false)}
@@ -313,7 +313,7 @@ export default function Chat() {
                   ×
                 </Button>
               </div>
-              
+
               <div className="p-4 space-y-4 max-h-96 overflow-y-auto scrollbar-hidden">
                 {favorites.length === 0 ? (
                   <div className="text-center py-8">

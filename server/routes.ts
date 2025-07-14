@@ -493,6 +493,58 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Voice room invitations
+  app.post('/api/voice-rooms/invite', authenticate, async (req: any, res) => {
+    try {
+      const { userId, roomId } = req.body;
+      
+      // Check if room exists and user has permission to invite
+      const room = await storage.getVoiceRoom(roomId);
+      if (!room) {
+        return res.status(404).json({ message: 'Voice room not found' });
+      }
+      
+      // Check if target user exists
+      const targetUser = await storage.getUser(userId);
+      if (!targetUser) {
+        return res.status(404).json({ message: 'User not found' });
+      }
+      
+      // Send notification to target user (in real app, this would be via WebSocket)
+      const client = connectedClients.get(userId);
+      if (client && client.readyState === WebSocket.OPEN) {
+        client.send(JSON.stringify({
+          type: 'voiceInvitation',
+          from: req.user.username,
+          roomId: roomId,
+          roomName: room.name,
+          inviterId: req.user.id
+        }));
+      }
+      
+      res.json({ message: 'Invitation sent' });
+    } catch (error) {
+      console.error('Send voice invitation error:', error);
+      res.status(500).json({ message: 'Failed to send invitation' });
+    }
+  });
+
+  app.post('/api/voice-rooms/invite/respond', authenticate, async (req: any, res) => {
+    try {
+      const { roomId, accept } = req.body;
+      
+      if (accept) {
+        await storage.joinVoiceRoom(roomId, req.user.id);
+        res.json({ message: 'Joined voice room' });
+      } else {
+        res.json({ message: 'Invitation declined' });
+      }
+    } catch (error) {
+      console.error('Respond to voice invitation error:', error);
+      res.status(500).json({ message: 'Failed to respond to invitation' });
+    }
+  });
+
   // Admin routes
   app.get('/api/admin/users', authenticate, adminOnly, async (req: any, res) => {
     try {

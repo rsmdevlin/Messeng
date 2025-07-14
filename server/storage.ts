@@ -37,42 +37,42 @@ export interface IStorage {
   updateUser(id: number, updates: Partial<User>): Promise<User>;
   searchUsers(query: string, excludeId?: number): Promise<User[]>;
   updateUserStatus(id: number, status: string, isOnline: boolean): Promise<void>;
-  
+
   // Chat operations
   getChat(id: number): Promise<Chat | undefined>;
   getUserChats(userId: number): Promise<(Chat & { lastMessage?: Message; unreadCount: number })[]>;
   createChat(chat: InsertChat): Promise<Chat>;
   updateChat(id: number, updates: Partial<Chat>): Promise<Chat>;
-  
+
   // Chat participants
   addChatParticipant(participant: InsertChatParticipant): Promise<ChatParticipant>;
   removeChatParticipant(chatId: number, userId: number): Promise<void>;
   getChatParticipants(chatId: number): Promise<(ChatParticipant & { user: User })[]>;
   isUserInChat(chatId: number, userId: number): Promise<boolean>;
-  
+
   // Message operations
   getMessages(chatId: number, limit?: number, offset?: number): Promise<(Message & { sender: User })[]>;
   createMessage(message: InsertMessage): Promise<Message>;
   updateMessage(id: number, updates: Partial<Message>): Promise<Message>;
   deleteMessage(id: number): Promise<void>;
-  
+
   // Favorites operations
   addToFavorites(favorite: InsertFavorite): Promise<Favorite>;
   removeFromFavorites(userId: number, messageId: number): Promise<void>;
   getUserFavorites(userId: number): Promise<(Favorite & { message: Message & { sender: User } })[]>;
-  
+
   // Voice rooms operations
   getVoiceRooms(): Promise<(VoiceRoom & { participants: VoiceRoomParticipant[] })[]>;
   createVoiceRoom(room: InsertVoiceRoom): Promise<VoiceRoom>;
   joinVoiceRoom(roomId: number, userId: number): Promise<void>;
   leaveVoiceRoom(roomId: number, userId: number): Promise<void>;
   getVoiceRoomParticipants(roomId: number): Promise<(VoiceRoomParticipant & { user: User })[]>;
-  
+
   // Session operations
   createSession(userId: number): Promise<string>;
   getSession(sessionId: string): Promise<{ userId: number } | undefined>;
   deleteSession(sessionId: string): Promise<void>;
-  
+
   // Admin operations
   getAllUsers(): Promise<User[]>;
   updateUserRole(id: number, role: string): Promise<void>;
@@ -83,11 +83,11 @@ export interface IStorage {
     totalGroups: number;
     activeVoiceRooms: number;
   }>;
-  
+
   // Chat management
   archiveChatForUser(chatId: number, userId: number): Promise<void>;
   pinChatForUser(chatId: number, userId: number): Promise<void>;
-  
+
   // Message reactions
   addMessageReaction(reaction: InsertMessageReaction): Promise<MessageReaction>;
   removeMessageReaction(messageId: number, userId: number, emoji: string): Promise<void>;
@@ -120,10 +120,10 @@ export class DatabaseStorage implements IStorage {
         password: hashedPassword,
       })
       .returning();
-    
+
     // Create favorites chat for the user
     await this.createFavoritesChat(newUser.id);
-    
+
     return newUser;
   }
 
@@ -141,11 +141,11 @@ export class DatabaseStorage implements IStorage {
       like(users.username, `%${query}%`),
       like(users.email, `%${query}%`)
     );
-    
+
     if (excludeId) {
       whereClause = and(whereClause, sql`${users.id} != ${excludeId}`);
     }
-    
+
     return await db.select().from(users).where(whereClause);
   }
 
@@ -200,7 +200,7 @@ export class DatabaseStorage implements IStorage {
         .limit(1);
 
       let chatName = chat.name;
-      
+
       // For private chats, show the other user's name
       if (chat.type === 'private') {
         const participants = await this.getChatParticipants(chat.id);
@@ -308,6 +308,7 @@ export class DatabaseStorage implements IStorage {
         userId: chatParticipants.userId,
         role: chatParticipants.role,
         joinedAt: chatParticipants.joinedAt,
+        lastReadAt: chatParticipants.lastReadAt,
         isActive: chatParticipants.isActive,
         user: users,
       })
@@ -350,7 +351,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(messages.createdAt))
       .limit(limit)
       .offset(offset);
-    
+
     return result.map(row => ({
       ...row.messages,
       sender: row.users,
@@ -372,13 +373,13 @@ export class DatabaseStorage implements IStorage {
 
   async createMessage(message: InsertMessage): Promise<Message> {
     const [newMessage] = await db.insert(messages).values(message).returning();
-    
+
     // Update chat's updated timestamp
     await db
       .update(chats)
       .set({ updatedAt: new Date() })
       .where(eq(chats.id, message.chatId));
-    
+
     return newMessage;
   }
 
@@ -423,7 +424,7 @@ export class DatabaseStorage implements IStorage {
       .innerJoin(users, eq(messages.senderId, users.id))
       .where(eq(favorites.userId, userId))
       .orderBy(desc(favorites.createdAt));
-    
+
     return result.map(row => ({
       id: row.favorites.id,
       userId: row.favorites.userId,
@@ -442,20 +443,20 @@ export class DatabaseStorage implements IStorage {
       .select()
       .from(voiceRooms)
       .where(eq(voiceRooms.isActive, true));
-    
+
     const result = [];
     for (const room of rooms) {
       const participants = await db
         .select()
         .from(voiceRoomParticipants)
         .where(eq(voiceRoomParticipants.roomId, room.id));
-      
+
       result.push({
         ...room,
         participants,
       });
     }
-    
+
     return result;
   }
 
@@ -501,13 +502,13 @@ export class DatabaseStorage implements IStorage {
   async createSession(userId: number): Promise<string> {
     const sessionId = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-    
+
     await db.insert(sessions).values({
       id: sessionId,
       userId,
       expiresAt,
     });
-    
+
     return sessionId;
   }
 
@@ -521,7 +522,7 @@ export class DatabaseStorage implements IStorage {
           sql`${sessions.expiresAt} > NOW()`
         )
       );
-    
+
     return session ? { userId: session.userId } : undefined;
   }
 
@@ -554,12 +555,12 @@ export class DatabaseStorage implements IStorage {
     const [totalUsers] = await db
       .select({ count: sql<number>`count(*)` })
       .from(users);
-    
+
     const [activeChats] = await db
       .select({ count: sql<number>`count(*)` })
       .from(chats)
       .where(eq(chats.isActive, true));
-    
+
     const [totalGroups] = await db
       .select({ count: sql<number>`count(*)` })
       .from(chats)
@@ -569,12 +570,12 @@ export class DatabaseStorage implements IStorage {
           eq(chats.isActive, true)
         )
       );
-    
+
     const [activeVoiceRooms] = await db
       .select({ count: sql<number>`count(*)` })
       .from(voiceRooms)
       .where(eq(voiceRooms.isActive, true));
-    
+
     return {
       totalUsers: totalUsers.count,
       activeChats: activeChats.count,
@@ -628,7 +629,7 @@ export class DatabaseStorage implements IStorage {
       .insert(messageReactions)
       .values(reaction)
       .returning();
-    
+
     return newReaction;
   }
 
@@ -670,7 +671,7 @@ export class DatabaseStorage implements IStorage {
         createdBy: userId,
       })
       .returning();
-    
+
     await db.insert(chatParticipants).values({
       chatId: favoritesChat.id,
       userId,
