@@ -177,6 +177,7 @@ export class DatabaseStorage implements IStorage {
       const [lastMessage] = await db
         .select()
         .from(messages)
+        .innerJoin(users, eq(messages.senderId, users.id))
         .where(
           and(
             eq(messages.chatId, chat.id),
@@ -186,11 +187,29 @@ export class DatabaseStorage implements IStorage {
         .orderBy(desc(messages.createdAt))
         .limit(1);
 
+      let chatName = chat.name;
+      
+      // For private chats, show the other user's name
+      if (chat.type === 'private') {
+        const participants = await this.getChatParticipants(chat.id);
+        const otherParticipant = participants.find(p => p.userId !== userId);
+        if (otherParticipant) {
+          const otherUser = await this.getUser(otherParticipant.userId);
+          if (otherUser) {
+            chatName = otherUser.username;
+          }
+        }
+      }
+
       // For simplicity, unread count is set to 0
       // In a real implementation, you'd track read status
       result.push({
         ...chat,
-        lastMessage: lastMessage || undefined,
+        name: chatName,
+        lastMessage: lastMessage ? {
+          ...lastMessage.messages,
+          sender: lastMessage.users
+        } : undefined,
         unreadCount: 0,
       });
     }
@@ -201,6 +220,31 @@ export class DatabaseStorage implements IStorage {
   async createChat(chat: InsertChat): Promise<Chat> {
     const [newChat] = await db.insert(chats).values(chat).returning();
     return newChat;
+  }
+
+  async findPrivateChat(userId1: number, userId2: number): Promise<Chat | null> {
+    // Find chats where both users are participants and chat type is private
+    const result = await db
+      .select({ chat: chats })
+      .from(chats)
+      .innerJoin(chatParticipants, eq(chats.id, chatParticipants.chatId))
+      .where(
+        and(
+          eq(chats.type, 'private'),
+          eq(chatParticipants.userId, userId1)
+        )
+      );
+
+    // Check if any of these chats also contain the second user
+    for (const { chat } of result) {
+      const participants = await this.getChatParticipants(chat.id);
+      const hasSecondUser = participants.some(p => p.userId === userId2);
+      if (hasSecondUser && participants.length === 2) {
+        return chat;
+      }
+    }
+
+    return null;
   }
 
   async updateChat(id: number, updates: Partial<Chat>): Promise<Chat> {

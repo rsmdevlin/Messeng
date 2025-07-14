@@ -348,15 +348,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
     try {
       const { userId } = req.body;
       
-      // Check if private chat already exists
-      const existingChats = await storage.getUserChats(req.user.id);
-      const existingPrivateChat = existingChats.find(chat => 
-        chat.type === 'private' && 
-        chat.name === `${req.user.username}-${userId}` // Simple naming convention
-      );
-      
-      if (existingPrivateChat) {
-        return res.json(existingPrivateChat);
+      // Check if private chat already exists between these two users
+      const existingChat = await storage.findPrivateChat(req.user.id, userId);
+      if (existingChat) {
+        return res.json(existingChat);
       }
       
       const otherUser = await storage.getUser(userId);
