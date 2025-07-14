@@ -538,6 +538,25 @@ export async function registerRoutes(app: Express): Promise<Server> {
     }
   });
 
+  // Mark messages as read
+  app.post('/api/chats/:chatId/messages/read', authenticate, async (req: any, res) => {
+    try {
+      const { chatId } = req.params;
+      const { messageIds } = req.body;
+
+      const isInChat = await storage.isUserInChat(parseInt(chatId), req.user.id);
+      if (!isInChat) {
+        return res.status(403).json({ message: 'Access denied' });
+      }
+
+      await storage.markMessagesAsRead(parseInt(chatId), req.user.id, messageIds);
+      res.json({ success: true });
+    } catch (error) {
+      console.error('Mark messages as read error:', error);
+      res.status(500).json({ message: 'Failed to mark messages as read' });
+    }
+  });
+
   // Delete chat
   app.delete('/api/chats/:id', authenticate, async (req, res) => {
     try {

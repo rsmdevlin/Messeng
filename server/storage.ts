@@ -7,6 +7,7 @@ import {
   voiceRooms,
   voiceRoomParticipants,
   sessions,
+  messageReactions,
   type User,
   type InsertUser,
   type Chat,
@@ -20,6 +21,8 @@ import {
   type VoiceRoom,
   type InsertVoiceRoom,
   type VoiceRoomParticipant,
+  type MessageReaction,
+  type InsertMessageReaction,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, and, or, desc, asc, sql, like, inArray } from "drizzle-orm";
@@ -84,6 +87,11 @@ export interface IStorage {
   // Chat management
   archiveChatForUser(chatId: number, userId: number): Promise<void>;
   pinChatForUser(chatId: number, userId: number): Promise<void>;
+  
+  // Message reactions
+  addMessageReaction(reaction: InsertMessageReaction): Promise<MessageReaction>;
+  removeMessageReaction(messageId: number, userId: number, emoji: string): Promise<void>;
+  getMessageReactions(messageId: number): Promise<(MessageReaction & { user: User })[]>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -328,7 +336,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Message operations
-  async getMessages(chatId: number, limit = 50, offset = 0): Promise<(Message & { sender: User })[]> {
+  async getMessages(chatId: number, limit = 50, offset = 0): Promise<(Message & { sender: User; isRead: boolean })[]> {
     const result = await db
       .select()
       .from(messages)
@@ -346,7 +354,20 @@ export class DatabaseStorage implements IStorage {
     return result.map(row => ({
       ...row.messages,
       sender: row.users,
+      isRead: false, // Will be updated based on actual read status
     }));
+  }
+
+  async markMessagesAsRead(chatId: number, userId: number, messageIds: number[]): Promise<void> {
+    await db
+      .update(chatParticipants)
+      .set({ lastReadAt: new Date() })
+      .where(
+        and(
+          eq(chatParticipants.chatId, chatId),
+          eq(chatParticipants.userId, userId)
+        )
+      );
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {
@@ -573,6 +594,69 @@ export class DatabaseStorage implements IStorage {
     // This would normally update a specific field, but for now we'll just leave it as a placeholder
     // In a real implementation, you'd add an isPinned field to chatParticipants
     console.log(`Pinning chat ${chatId} for user ${userId}`);
+  }
+
+  // Message reactions
+  async addMessageReaction(reaction: InsertMessageReaction): Promise<MessageReaction> {
+    // Check if reaction already exists
+    const existing = await db
+      .select()
+      .from(messageReactions)
+      .where(
+        and(
+          eq(messageReactions.messageId, reaction.messageId),
+          eq(messageReactions.userId, reaction.userId),
+          eq(messageReactions.emoji, reaction.emoji)
+        )
+      );
+
+    if (existing.length > 0) {
+      // Remove existing reaction
+      await db
+        .delete(messageReactions)
+        .where(
+          and(
+            eq(messageReactions.messageId, reaction.messageId),
+            eq(messageReactions.userId, reaction.userId),
+            eq(messageReactions.emoji, reaction.emoji)
+          )
+        );
+      return existing[0];
+    }
+
+    const [newReaction] = await db
+      .insert(messageReactions)
+      .values(reaction)
+      .returning();
+    
+    return newReaction;
+  }
+
+  async removeMessageReaction(messageId: number, userId: number, emoji: string): Promise<void> {
+    await db
+      .delete(messageReactions)
+      .where(
+        and(
+          eq(messageReactions.messageId, messageId),
+          eq(messageReactions.userId, userId),
+          eq(messageReactions.emoji, emoji)
+        )
+      );
+  }
+
+  async getMessageReactions(messageId: number): Promise<(MessageReaction & { user: User })[]> {
+    return await db
+      .select({
+        id: messageReactions.id,
+        messageId: messageReactions.messageId,
+        userId: messageReactions.userId,
+        emoji: messageReactions.emoji,
+        createdAt: messageReactions.createdAt,
+        user: users,
+      })
+      .from(messageReactions)
+      .innerJoin(users, eq(messageReactions.userId, users.id))
+      .where(eq(messageReactions.messageId, messageId));
   }
 
   // Helper method to create favorites chat

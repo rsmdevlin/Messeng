@@ -47,24 +47,38 @@ export const chatParticipants = pgTable("chat_participants", {
 // Messages table
 export const messages = pgTable("messages", {
   id: serial("id").primaryKey(),
-  chatId: integer("chat_id").references(() => chats.id).notNull(),
-  senderId: integer("sender_id").references(() => users.id).notNull(),
+  chatId: integer("chat_id").references(() => chats.id, { onDelete: "cascade" }).notNull(),
+  senderId: integer("sender_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
   content: text("content").notNull(),
+  replyToId: integer("reply_to_id").references(() => messages.id),
+  isDeleted: boolean("is_deleted").default(false).notNull(),
+  isEdited: boolean("is_edited").default(false).notNull(),
   messageType: text("message_type").default("text"), // text, image, file, voice
-  isEdited: boolean("is_edited").default(false),
-  isDeleted: boolean("is_deleted").default(false),
-  replyTo: integer("reply_to"),
-  createdAt: timestamp("created_at").defaultNow(),
-  updatedAt: timestamp("updated_at").defaultNow(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+  updatedAt: timestamp("updated_at").defaultNow().notNull(),
 });
 
 // Favorites table
 export const favorites = pgTable("favorites", {
   id: serial("id").primaryKey(),
-  userId: integer("user_id").references(() => users.id).notNull(),
-  messageId: integer("message_id").references(() => messages.id).notNull(),
-  createdAt: timestamp("created_at").defaultNow(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  messageId: integer("message_id").references(() => messages.id, { onDelete: "cascade" }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
 });
+
+export type Favorite = typeof favorites.$inferSelect;
+export type InsertFavorite = typeof favorites.$inferInsert;
+
+export const messageReactions = pgTable("message_reactions", {
+  id: serial("id").primaryKey(),
+  messageId: integer("message_id").references(() => messages.id, { onDelete: "cascade" }).notNull(),
+  userId: integer("user_id").references(() => users.id, { onDelete: "cascade" }).notNull(),
+  emoji: varchar("emoji", { length: 10 }).notNull(),
+  createdAt: timestamp("created_at").defaultNow().notNull(),
+});
+
+export type MessageReaction = typeof messageReactions.$inferSelect;
+export type InsertMessageReaction = typeof messageReactions.$inferInsert;
 
 // Voice rooms table
 export const voiceRooms = pgTable("voice_rooms", {
@@ -113,7 +127,7 @@ export const chatsRelations = relations(chats, ({ one, many }) => ({
 export const messagesRelations = relations(messages, ({ one }) => ({
   sender: one(users, { fields: [messages.senderId], references: [users.id] }),
   chat: one(chats, { fields: [messages.chatId], references: [chats.id] }),
-  replyToMessage: one(messages, { fields: [messages.replyTo], references: [messages.id] }),
+  replyToMessage: one(messages, { fields: [messages.replyToId], references: [messages.id] }),
 }));
 
 export const chatParticipantsRelations = relations(chatParticipants, ({ one }) => ({
