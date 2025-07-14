@@ -62,6 +62,7 @@ export interface IStorage {
   getUserFavorites(userId: number): Promise<(Favorite & { message: Message & { sender: User } })[]>;
 
   // Voice rooms operations
+  getVoiceRoom(id: number): Promise<VoiceRoom | undefined>;
   getVoiceRooms(): Promise<(VoiceRoom & { participants: VoiceRoomParticipant[] })[]>;
   createVoiceRoom(room: InsertVoiceRoom): Promise<VoiceRoom>;
   joinVoiceRoom(roomId: number, userId: number): Promise<void>;
@@ -438,6 +439,11 @@ export class DatabaseStorage implements IStorage {
   }
 
   // Voice rooms operations
+  async getVoiceRoom(id: number): Promise<VoiceRoom | undefined> {
+    const [room] = await db.select().from(voiceRooms).where(eq(voiceRooms.id, id));
+    return room;
+  }
+
   async getVoiceRooms(): Promise<(VoiceRoom & { participants: VoiceRoomParticipant[] })[]> {
     const rooms = await db
       .select()

@@ -41,6 +41,7 @@ export const chatParticipants = pgTable("chat_participants", {
   userId: integer("user_id").references(() => users.id).notNull(),
   role: text("role").default("member"), // member, admin, owner
   joinedAt: timestamp("joined_at").defaultNow(),
+  lastReadAt: timestamp("last_read_at"),
   isActive: boolean("is_active").default(true),
 });
 
