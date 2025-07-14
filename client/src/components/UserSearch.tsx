@@ -42,12 +42,17 @@ export default function UserSearch({ onClose, onChatStart }: UserSearchProps) {
       });
       return response.json();
     },
-    onSuccess: (chat) => {
-      queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
-      onChatStart(chat.id);
-      onClose();
+    onSuccess: async (chat) => {
+      // Force refetch of chats list
+      await queryClient.refetchQueries({ queryKey: ['/api/chats'] });
+      // Small delay to ensure data is loaded
+      setTimeout(() => {
+        onChatStart(chat.id);
+        onClose();
+      }, 100);
     },
     onError: (error: any) => {
+      console.error('Create chat error:', error);
       toast({
         title: "Ошибка",
         description: "Не удалось создать чат",

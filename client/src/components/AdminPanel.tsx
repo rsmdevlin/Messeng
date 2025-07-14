@@ -231,7 +231,7 @@ export default function AdminPanel() {
                         </div>
                         <div className={`absolute bottom-0 right-0 w-3 h-3 rounded-full border-2 border-white ${getStatusColor(u.status, u.isOnline)}`}></div>
                       </div>
-                      
+
                       <div>
                         <div className="flex items-center space-x-2">
                           <h4 className="font-medium text-white">{u.username}</h4>
@@ -245,7 +245,7 @@ export default function AdminPanel() {
                         </p>
                       </div>
                     </div>
-                    
+
                     <div className="flex items-center space-x-2">
                       <Select
                         value={u.role}
@@ -265,7 +265,7 @@ export default function AdminPanel() {
                           <SelectItem value="admin">Администратор</SelectItem>
                         </SelectContent>
                       </Select>
-                      
+
                       <Button
                         variant="ghost"
                         size="sm"
@@ -309,7 +309,7 @@ export default function AdminPanel() {
                   </div>
                   <Switch defaultChecked />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-white">Создание групп</Label>
@@ -319,7 +319,7 @@ export default function AdminPanel() {
                   </div>
                   <Switch defaultChecked />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-white">Голосовые комнаты</Label>
@@ -329,7 +329,7 @@ export default function AdminPanel() {
                   </div>
                   <Switch defaultChecked />
                 </div>
-                
+
                 <div className="flex items-center justify-between">
                   <div>
                     <Label className="text-white">Модерация сообщений</Label>
@@ -354,17 +354,17 @@ export default function AdminPanel() {
                   <Download className="w-4 h-4 mr-2" />
                   Экспорт данных
                 </Button>
-                
+
                 <Button className="w-full bg-blue-600 hover:bg-blue-700 text-white">
                   <Upload className="w-4 h-4 mr-2" />
                   Резервное копирование
                 </Button>
-                
+
                 <Button className="w-full bg-orange-600 hover:bg-orange-700 text-white">
                   <Database className="w-4 h-4 mr-2" />
                   Очистить логи
                 </Button>
-                
+
                 <Button className="w-full bg-red-600 hover:bg-red-700 text-white">
                   <RefreshCw className="w-4 h-4 mr-2" />
                   Перезагрузить сервер
@@ -389,7 +389,7 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card style={{ background: 'var(--neo-surface)', border: '1px solid var(--neo-border)' }}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -403,7 +403,7 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card style={{ background: 'var(--neo-surface)', border: '1px solid var(--neo-border)' }}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -417,7 +417,7 @@ export default function AdminPanel() {
                 </div>
               </CardContent>
             </Card>
-            
+
             <Card style={{ background: 'var(--neo-surface)', border: '1px solid var(--neo-border)' }}>
               <CardContent className="p-6">
                 <div className="flex items-center justify-between">
@@ -447,29 +447,29 @@ export default function AdminPanel() {
                     <span className="text-white">Статус сервера</span>
                     <span className="px-2 py-1 bg-green-500 text-white text-xs rounded">Онлайн</span>
                   </div>
-                  
+
                   <div className="flex items-center justify-between p-3 rounded" style={{ background: 'var(--neo-border)' }}>
                     <span className="text-white">База данных</span>
                     <span className="px-2 py-1 bg-green-500 text-white text-xs rounded">Подключена</span>
                   </div>
-                  
+
                   <div className="flex items-center justify-between p-3 rounded" style={{ background: 'var(--neo-border)' }}>
                     <span className="text-white">WebSocket</span>
                     <span className="px-2 py-1 bg-green-500 text-white text-xs rounded">Активен</span>
                   </div>
                 </div>
-                
+
                 <div className="space-y-4">
                   <div className="flex items-center justify-between p-3 rounded" style={{ background: 'var(--neo-border)' }}>
                     <span className="text-white">Использование памяти</span>
                     <span style={{ color: 'var(--neo-text)' }}>45%</span>
                   </div>
-                  
+
                   <div className="flex items-center justify-between p-3 rounded" style={{ background: 'var(--neo-border)' }}>
                     <span className="text-white">Загрузка CPU</span>
                     <span style={{ color: 'var(--neo-text)' }}>23%</span>
                   </div>
-                  
+
                   <div className="flex items-center justify-between p-3 rounded" style={{ background: 'var(--neo-border)' }}>
                     <span className="text-white">Время работы</span>
                     <span style={{ color: 'var(--neo-text)' }}>2д 14ч</span>

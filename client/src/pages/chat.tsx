@@ -48,7 +48,17 @@ export default function Chat() {
   // Fetch user's chats
   const { data: chats = [] } = useQuery({
     queryKey: ['/api/chats'],
+    queryFn: async () => {
+      const response = await apiRequest('GET', '/api/chats');
+      return response.json();
+    },
+    enabled: !!user,
     refetchInterval: 5000, // Refetch every 5 seconds
+    retry: (failureCount, error: any) => {
+      // Don't retry on auth errors
+      if (error?.status === 401) return false;
+      return failureCount < 3;
+    },
   });
 
   // Fetch favorites
