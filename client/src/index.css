@@ -1,0 +1,162 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --background: hsl(210, 15%, 8%);
+  --foreground: hsl(0, 0%, 98%);
+  --card: hsl(210, 15%, 12%);
+  --card-foreground: hsl(0, 0%, 98%);
+  --popover: hsl(210, 15%, 12%);
+  --popover-foreground: hsl(0, 0%, 98%);
+  --primary: hsl(142, 70%, 45%);
+  --primary-foreground: hsl(0, 0%, 98%);
+  --secondary: hsl(210, 15%, 16%);
+  --secondary-foreground: hsl(0, 0%, 98%);
+  --muted: hsl(210, 15%, 16%);
+  --muted-foreground: hsl(210, 5%, 60%);
+  --accent: hsl(210, 15%, 16%);
+  --accent-foreground: hsl(0, 0%, 98%);
+  --destructive: hsl(0, 70%, 60%);
+  --destructive-foreground: hsl(0, 0%, 98%);
+  --border: hsl(210, 15%, 22%);
+  --input: hsl(210, 15%, 22%);
+  --ring: hsl(142, 70%, 45%);
+  --radius: 0.5rem;
+  
+  /* NeoGram specific colors */
+  --neo-green: hsl(142, 70%, 45%);
+  --neo-blue: hsl(207, 90%, 54%);
+  --neo-red: hsl(0, 70%, 60%);
+  --neo-dark: hsl(210, 15%, 8%);
+  --neo-surface: hsl(210, 15%, 12%);
+  --neo-border: hsl(210, 15%, 22%);
+  --neo-text: hsl(210, 5%, 60%);
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+  
+  body {
+    @apply bg-background text-foreground;
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+}
+
+@layer utilities {
+  .gradient-bg {
+    background: linear-gradient(135deg, var(--neo-green) 0%, var(--neo-blue) 100%);
+  }
+  
+  .gradient-border {
+    background: linear-gradient(135deg, var(--neo-green) 0%, var(--neo-blue) 100%);
+    padding: 1px;
+    border-radius: 12px;
+  }
+  
+  .gradient-border-inner {
+    background: var(--neo-surface);
+    border-radius: 11px;
+  }
+  
+  .avatar-online::after {
+    content: '';
+    position: absolute;
+    bottom: 2px;
+    right: 2px;
+    width: 12px;
+    height: 12px;
+    background: var(--neo-green);
+    border: 2px solid var(--neo-dark);
+    border-radius: 50%;
+  }
+  
+  .chat-message {
+    animation: slideIn 0.3s ease-out;
+  }
+  
+  @keyframes slideIn {
+    from {
+      opacity: 0;
+      transform: translateY(20px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
+  }
+  
+  .modal-backdrop {
+    backdrop-filter: blur(10px);
+    background: rgba(26, 26, 26, 0.8);
+  }
+  
+  .scrollbar-hidden {
+    scrollbar-width: none;
+    -ms-overflow-style: none;
+  }
+  
+  .scrollbar-hidden::-webkit-scrollbar {
+    display: none;
+  }
+  
+  .theme-matrix {
+    --color-1: var(--neo-green);
+    --color-2: var(--neo-blue);
+    --color-3: hsl(142, 70%, 25%);
+  }
+  
+  .theme-fire {
+    --color-1: hsl(0, 70%, 60%);
+    --color-2: hsl(25, 85%, 55%);
+    --color-3: hsl(0, 70%, 35%);
+  }
+  
+  .theme-ocean {
+    --color-1: hsl(207, 90%, 54%);
+    --color-2: hsl(195, 85%, 62%);
+    --color-3: hsl(207, 90%, 35%);
+  }
+  
+  .theme-forest {
+    --color-1: hsl(120, 60%, 50%);
+    --color-2: hsl(135, 60%, 55%);
+    --color-3: hsl(120, 60%, 30%);
+  }
+  
+  .theme-sunset {
+    --color-1: hsl(30, 95%, 55%);
+    --color-2: hsl(45, 95%, 60%);
+    --color-3: hsl(30, 95%, 35%);
+  }
+  
+  .theme-cyber {
+    --color-1: hsl(330, 70%, 60%);
+    --color-2: hsl(280, 70%, 60%);
+    --color-3: hsl(260, 70%, 60%);
+  }
+  
+  .theme-card {
+    background: linear-gradient(135deg, var(--color-1) 0%, var(--color-2) 50%, var(--color-3) 100%);
+  }
+}
+
+/* Custom scrollbar for webkit browsers */
+.custom-scrollbar::-webkit-scrollbar {
+  width: 6px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+  background: var(--neo-surface);
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--neo-border);
+  border-radius: 3px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--neo-text);
+}
