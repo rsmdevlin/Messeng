@@ -20,7 +20,7 @@ export async function apiRequest(
   
   // Add auth header if we have a token and it's not a login/register request
   if (!url.includes('/auth/login') && !url.includes('/auth/register')) {
-    const token = localStorage.getItem('auth_token');
+    const token = localStorage.getItem('neogram_token');
     if (token) {
       headers["Authorization"] = `Bearer ${token}`;
     }

@@ -18,6 +18,9 @@ export function useAuth() {
     enabled: !!getAuthToken(),
     retry: false,
     staleTime: 5 * 60 * 1000, // 5 minutes
+    refetchOnWindowFocus: false,
+    refetchOnMount: false,
+    refetchInterval: false,
   });
 
   const loginMutation = useMutation({
@@ -46,18 +49,22 @@ export function useAuth() {
     mutationFn: async () => {
       const token = getAuthToken();
       if (token) {
-        await apiRequest("POST", "/api/auth/logout");
+        try {
+          await apiRequest("POST", "/api/auth/logout");
+        } catch (error) {
+          // Ignore logout errors on server side
+          console.warn("Logout request failed:", error);
+        }
       }
     },
-    onSuccess: () => {
+    onSettled: () => {
+      // Always clear local state regardless of server response
       removeAuthToken();
       queryClient.setQueryData(["/api/auth/user"], null);
-      queryClient.clear();
-    },
-    onError: () => {
-      // Even if logout fails, clear local state
-      removeAuthToken();
-      queryClient.setQueryData(["/api/auth/user"], null);
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.removeQueries({ queryKey: ["/api/auth/user"] });
+      
+      // Clear all queries to prevent any cached data issues
       queryClient.clear();
     },
   });
