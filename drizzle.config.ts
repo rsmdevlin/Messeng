@@ -1,14 +1,10 @@
-import { defineConfig } from "drizzle-kit";
-
-if (!process.env.DATABASE_URL) {
-  throw new Error("DATABASE_URL, ensure the database is provisioned");
-}
+import { defineConfig } from 'drizzle-kit';
 
 export default defineConfig({
-  out: "./migrations",
-  schema: "./shared/schema.ts",
-  dialect: "postgresql",
+  schema: './schema.ts', // укажи здесь файл со схемой таблиц (описан на TypeScript)
+  out: './drizzle', // куда будут сохраняться миграции
+  driver: 'pg',  // драйвер Postgres
   dbCredentials: {
-    url: process.env.DATABASE_URL,
+    connectionString: process.env.DATABASE_URL, // укажи переменную окружения с твоей БД
   },
 });
