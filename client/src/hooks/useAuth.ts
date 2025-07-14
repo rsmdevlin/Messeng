@@ -7,8 +7,17 @@ export function useAuth() {
 
   const { data: user, isLoading } = useQuery({
     queryKey: ["/api/auth/user"],
+    queryFn: async () => {
+      const token = getAuthToken();
+      if (!token) {
+        return null;
+      }
+      const response = await apiRequest("GET", "/api/auth/user");
+      return response.json();
+    },
     enabled: !!getAuthToken(),
     retry: false,
+    staleTime: 5 * 60 * 1000, // 5 minutes
   });
 
   const loginMutation = useMutation({
@@ -35,10 +44,20 @@ export function useAuth() {
 
   const logoutMutation = useMutation({
     mutationFn: async () => {
-      await apiRequest("POST", "/api/auth/logout");
+      const token = getAuthToken();
+      if (token) {
+        await apiRequest("POST", "/api/auth/logout");
+      }
     },
     onSuccess: () => {
       removeAuthToken();
+      queryClient.setQueryData(["/api/auth/user"], null);
+      queryClient.clear();
+    },
+    onError: () => {
+      // Even if logout fails, clear local state
+      removeAuthToken();
+      queryClient.setQueryData(["/api/auth/user"], null);
       queryClient.clear();
     },
   });
