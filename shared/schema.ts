@@ -53,7 +53,7 @@ export const messages = pgTable("messages", {
   messageType: text("message_type").default("text"), // text, image, file, voice
   isEdited: boolean("is_edited").default(false),
   isDeleted: boolean("is_deleted").default(false),
-  replyTo: integer("reply_to").references(() => messages.id),
+  replyTo: integer("reply_to"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

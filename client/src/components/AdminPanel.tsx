@@ -103,7 +103,7 @@ export default function AdminPanel() {
   const filteredUsers = users.filter((u: User) => {
     const matchesSearch = u.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
                          u.email.toLowerCase().includes(searchQuery.toLowerCase());
-    const matchesRole = !selectedRole || u.role === selectedRole;
+    const matchesRole = !selectedRole || selectedRole === "all" || u.role === selectedRole;
     return matchesSearch && matchesRole;
   });
 
@@ -205,7 +205,7 @@ export default function AdminPanel() {
                       <SelectValue placeholder="Все роли" />
                     </SelectTrigger>
                     <SelectContent>
-                      <SelectItem value="">Все роли</SelectItem>
+                      <SelectItem value="all">Все роли</SelectItem>
                       <SelectItem value="admin">Администратор</SelectItem>
                       <SelectItem value="moderator">Модератор</SelectItem>
                       <SelectItem value="user">Пользователь</SelectItem>

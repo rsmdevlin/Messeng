@@ -190,7 +190,7 @@ export class DatabaseStorage implements IStorage {
       // In a real implementation, you'd track read status
       result.push({
         ...chat,
-        lastMessage,
+        lastMessage: lastMessage || undefined,
         unreadCount: 0,
       });
     }
@@ -270,20 +270,8 @@ export class DatabaseStorage implements IStorage {
 
   // Message operations
   async getMessages(chatId: number, limit = 50, offset = 0): Promise<(Message & { sender: User })[]> {
-    return await db
-      .select({
-        id: messages.id,
-        chatId: messages.chatId,
-        senderId: messages.senderId,
-        content: messages.content,
-        messageType: messages.messageType,
-        isEdited: messages.isEdited,
-        isDeleted: messages.isDeleted,
-        replyTo: messages.replyTo,
-        createdAt: messages.createdAt,
-        updatedAt: messages.updatedAt,
-        sender: users,
-      })
+    const result = await db
+      .select()
       .from(messages)
       .innerJoin(users, eq(messages.senderId, users.id))
       .where(
@@ -295,6 +283,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(asc(messages.createdAt))
       .limit(limit)
       .offset(offset);
+    
+    return result.map(row => ({
+      ...row.messages,
+      sender: row.users,
+    }));
   }
 
   async createMessage(message: InsertMessage): Promise<Message> {
@@ -343,31 +336,24 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserFavorites(userId: number): Promise<(Favorite & { message: Message & { sender: User } })[]> {
-    return await db
-      .select({
-        id: favorites.id,
-        userId: favorites.userId,
-        messageId: favorites.messageId,
-        createdAt: favorites.createdAt,
-        message: {
-          id: messages.id,
-          chatId: messages.chatId,
-          senderId: messages.senderId,
-          content: messages.content,
-          messageType: messages.messageType,
-          isEdited: messages.isEdited,
-          isDeleted: messages.isDeleted,
-          replyTo: messages.replyTo,
-          createdAt: messages.createdAt,
-          updatedAt: messages.updatedAt,
-          sender: users,
-        },
-      })
+    const result = await db
+      .select()
       .from(favorites)
       .innerJoin(messages, eq(favorites.messageId, messages.id))
       .innerJoin(users, eq(messages.senderId, users.id))
       .where(eq(favorites.userId, userId))
       .orderBy(desc(favorites.createdAt));
+    
+    return result.map(row => ({
+      id: row.favorites.id,
+      userId: row.favorites.userId,
+      messageId: row.favorites.messageId,
+      createdAt: row.favorites.createdAt,
+      message: {
+        ...row.messages,
+        sender: row.users,
+      },
+    }));
   }
 
   // Voice rooms operations

@@ -33,7 +33,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
         if (data.type === 'message' && userId) {
           const { chatId, content } = data;
           const message = await storage.createMessage({
-            chatId,
+            chatId: parseInt(chatId),
             senderId: userId,
             content,
           });
@@ -257,7 +257,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       const participants = await storage.getChatParticipants(parseInt(chatId));
       const userParticipant = participants.find(p => p.userId === req.user.id);
       
-      if (!userParticipant || !['owner', 'admin'].includes(userParticipant.role)) {
+      if (!userParticipant || !['owner', 'admin'].includes(userParticipant.role || '')) {
         return res.status(403).json({ message: 'Permission denied' });
       }
       
