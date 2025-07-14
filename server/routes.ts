@@ -32,21 +32,33 @@ export async function registerRoutes(app: Express): Promise<Server> {
 
         if (data.type === 'message' && userId) {
           const { chatId, content } = data;
+          
+          // Check if user is allowed to send messages to this chat
+          const isInChat = await storage.isUserInChat(parseInt(chatId), userId);
+          if (!isInChat) {
+            return;
+          }
+
           const message = await storage.createMessage({
             chatId: parseInt(chatId),
             senderId: userId,
             content,
           });
 
-          // Broadcast to all participants in the chat
-          const participants = await storage.getChatParticipants(chatId);
+          const sender = await storage.getUser(userId);
+          
+          // Broadcast to all participants in the chat except sender
+          const participants = await storage.getChatParticipants(parseInt(chatId));
           participants.forEach(participant => {
-            const client = connectedClients.get(participant.userId);
-            if (client && client.readyState === WebSocket.OPEN) {
-              client.send(JSON.stringify({
-                type: 'newMessage',
-                message: { ...message, sender: { id: userId } },
-              }));
+            if (participant.userId !== userId) { // Don't send to sender
+              const client = connectedClients.get(participant.userId);
+              if (client && client.readyState === WebSocket.OPEN) {
+                client.send(JSON.stringify({
+                  type: 'newMessage',
+                  message: { ...message, sender },
+                  chatId: parseInt(chatId)
+                }));
+              }
             }
           });
         }
@@ -351,7 +363,12 @@ export async function registerRoutes(app: Express): Promise<Server> {
       // Check if private chat already exists between these two users
       const existingChat = await storage.findPrivateChat(req.user.id, userId);
       if (existingChat) {
-        return res.json(existingChat);
+        // Return the existing chat with proper name for current user
+        const otherUser = await storage.getUser(userId);
+        return res.json({
+          ...existingChat,
+          name: otherUser?.username || 'Unknown User'
+        });
       }
 
       const otherUser = await storage.getUser(userId);
@@ -360,7 +377,7 @@ export async function registerRoutes(app: Express): Promise<Server> {
       }
 
       const chat = await storage.createChat({
-        name: otherUser.username,
+        name: `${req.user.username}-${otherUser.username}`,
         type: 'private',
         createdBy: req.user.id,
       });
@@ -378,7 +395,10 @@ export async function registerRoutes(app: Express): Promise<Server> {
         role: 'member',
       });
 
-      res.json(chat);
+      res.json({
+        ...chat,
+        name: otherUser.username
+      });
     } catch (error) {
       console.error('Create private chat error:', error);
       res.status(500).json({ message: 'Failed to create private chat' });

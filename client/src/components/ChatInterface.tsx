@@ -40,15 +40,13 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
   const [messageText, setMessageText] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Fetch chat details
-  const { data: chat } = useQuery({
-    queryKey: ['/api/chats', chatId],
-    queryFn: async () => {
-      const response = await apiRequest('GET', `/api/chats/${chatId}`);
-      return response.json();
-    },
-    enabled: !!chatId,
+  // Fetch chat details from the chats list instead of separate API call
+  const { data: allChats = [] } = useQuery({
+    queryKey: ['/api/chats'],
+    enabled: !!user,
   });
+
+  const chat = allChats.find((c: any) => c.id === chatId);
 
   // Fetch messages
   const { data: messages = [] } = useQuery({
@@ -58,7 +56,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
       return response.json();
     },
     enabled: !!chatId,
-    refetchInterval: 3000,
+    refetchInterval: false, // Disable auto-refetch, use WebSocket updates instead
   });
 
   // Send message mutation
@@ -70,15 +68,9 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
       return response.json();
     },
     onSuccess: (data, content) => {
+      // Only invalidate queries, don't send via WebSocket (server handles WebSocket broadcasting)
       queryClient.invalidateQueries({ queryKey: ['/api/chats', chatId, 'messages'] });
       queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
-
-      // Send via WebSocket
-      sendMessage({
-        type: 'message',
-        chatId,
-        content: content
-      });
     },
     onError: (error) => {
       console.error('Failed to send message:', error);
@@ -119,7 +111,7 @@ export default function ChatInterface({ chatId, onBack, sendMessage }: ChatInter
     const content = messageText.trim();
     setMessageText("");
 
-    await sendMessageMutation.mutateAsync(content);
+    sendMessageMutation.mutate(content);
   };
 
   const handleKeyPress = (e: React.KeyboardEvent) => {

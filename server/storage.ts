@@ -177,7 +177,7 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(chats.updatedAt));
 
     const result = [];
-    for (const { chat } of userChats) {
+    for (const { chat, participant } of userChats) {
       const [lastMessage] = await db
         .select()
         .from(messages)
@@ -205,8 +205,19 @@ export class DatabaseStorage implements IStorage {
         }
       }
 
-      // For simplicity, unread count is set to 0
-      // In a real implementation, you'd track read status
+      // Calculate unread count - messages sent after user's last read
+      const unreadMessages = await db
+        .select({ count: sql<number>`count(*)` })
+        .from(messages)
+        .where(
+          and(
+            eq(messages.chatId, chat.id),
+            eq(messages.isDeleted, false),
+            sql`${messages.senderId} != ${userId}`, // Not sent by current user
+            participant.lastReadAt ? sql`${messages.createdAt} > ${participant.lastReadAt}` : sql`1=1`
+          )
+        );
+
       result.push({
         ...chat,
         name: chatName,
@@ -214,7 +225,7 @@ export class DatabaseStorage implements IStorage {
           ...lastMessage.messages,
           sender: lastMessage.users
         } : undefined,
-        unreadCount: 0,
+        unreadCount: unreadMessages[0]?.count || 0,
       });
     }
 

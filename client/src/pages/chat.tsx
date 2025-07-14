@@ -39,8 +39,10 @@ export default function Chat() {
   // WebSocket connection
   const { sendMessage } = useWebSocket((data) => {
     if (data.type === 'newMessage') {
-      // Invalidate messages query to refetch
-      queryClient.invalidateQueries({ queryKey: ['/api/chats', currentChatId, 'messages'] });
+      // Invalidate messages query to refetch only for the specific chat
+      if (data.chatId) {
+        queryClient.invalidateQueries({ queryKey: ['/api/chats', data.chatId, 'messages'] });
+      }
       queryClient.invalidateQueries({ queryKey: ['/api/chats'] });
     }
   });
