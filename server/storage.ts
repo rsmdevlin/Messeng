@@ -506,25 +506,25 @@ export class DatabaseStorage implements IStorage {
 
   // Session operations
   async createSession(userId: number): Promise<string> {
-    const sessionId = crypto.randomUUID();
+    const sessionToken = crypto.randomUUID();
     const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000); // 7 days
-
+    
     await db.insert(sessions).values({
-      id: sessionId,
-      userId,
+      userId: userId,
+      token: sessionToken,
       expiresAt,
     });
 
-    return sessionId;
+    return sessionToken;
   }
 
-  async getSession(sessionId: string): Promise<{ userId: number } | undefined> {
+  async getSession(sessionToken: string): Promise<{ userId: number } | undefined> {
     const [session] = await db
       .select()
       .from(sessions)
       .where(
         and(
-          eq(sessions.id, sessionId),
+          eq(sessions.token, sessionToken),
           sql`${sessions.expiresAt} > NOW()`
         )
       );
@@ -532,8 +532,8 @@ export class DatabaseStorage implements IStorage {
     return session ? { userId: session.userId } : undefined;
   }
 
-  async deleteSession(sessionId: string): Promise<void> {
-    await db.delete(sessions).where(eq(sessions.id, sessionId));
+  async deleteSession(sessionToken: string): Promise<void> {
+    await db.delete(sessions).where(eq(sessions.token, sessionToken));
   }
 
   // Admin operations

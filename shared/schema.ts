@@ -103,8 +103,9 @@ export const voiceRoomParticipants = pgTable("voice_room_participants", {
 
 // Sessions table for authentication
 export const sessions = pgTable("sessions", {
-  id: text("id").primaryKey(),
+  id: serial("id").primaryKey(),
   userId: integer("user_id").references(() => users.id).notNull(),
+  token: text("token").notNull().unique(),
   expiresAt: timestamp("expires_at").notNull(),
   createdAt: timestamp("created_at").defaultNow(),
 });

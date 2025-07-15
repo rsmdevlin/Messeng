@@ -4,6 +4,22 @@
 
 NeoGram is a full-stack real-time chat application built with React, Express.js, and PostgreSQL. It features a modern UI with shadcn/ui components, real-time messaging via WebSockets, user authentication, and admin functionality. The application uses a dark theme with green accent colors inspired by the Matrix aesthetic.
 
+## Recent Changes
+
+### July 15, 2025 - Database Connectivity Issues Fixed
+- ✅ **Fixed critical database connection issue** - Server now properly connects to PostgreSQL
+- ✅ **Resolved server startup problems** - Application now starts on port 3000 without EADDRINUSE errors
+- ✅ **Fixed session authentication** - Corrected sessions table schema mismatch between Drizzle and actual DB structure
+- ✅ **Registration and login working** - Users can now successfully register and authenticate
+- ✅ **API endpoints responding** - All REST API endpoints now return proper JSON responses instead of HTML
+- ✅ **Type safety improvements** - Fixed integer/UUID type conflicts in user ID handling
+
+### Current Status
+- Backend API fully functional with proper error handling
+- Frontend loads successfully with Vite development server
+- Database operations working correctly with PostgreSQL
+- Authentication system operational with session-based tokens
+
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
