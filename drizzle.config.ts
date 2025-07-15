@@ -4,10 +4,9 @@ dotenv.config();
 import { config } from "drizzle-kit";
 
 export default {
-  schema: "./server/schema.ts",  // путь к твоей схеме
+  schema: "./shared/schema.ts",  // исправленный путь к схеме
   out: "./migrations",
-  driver: "pg",
-  dialect: "postgresql",   // вот сюда обязательно укажи dialect
+  dialect: "postgresql",
   dbCredentials: {
     connectionString: process.env.DATABASE_URL,
   },
